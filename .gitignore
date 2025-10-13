@@ -4,9 +4,7 @@ node_modules/
 
 # CDK
 cdk.out/
-*.js
-*.d.ts
-!lambda/*.js
+
 
 # Frontend build
 frontend/build/

@@ -1,65 +1,89 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Amplify } from 'aws-amplify';
+import { Amplify, Auth } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import BackofficeLayout from './components/BackofficeLayout';
 import AthleteProfile from './components/AthleteProfile';
 
-// Development configuration - replace with actual values after AWS deployment
+// Production configuration from CDK deployment
 Amplify.configure({
   Auth: {
-    region: 'us-east-1',
-    userPoolId: 'us-east-1_XXXXXXXXX', // Replace after deployment
-    userPoolWebClientId: 'XXXXXXXXXXXXXXXXXXXXXXXXXX', // Replace after deployment
+    region: 'us-east-2',
+    userPoolId: 'us-east-2_byZ9cagQ0',
+    userPoolWebClientId: '34e7c5rhk57sgab81pia0c87s6',
   },
   API: {
     endpoints: [
       {
         name: 'CalisthenicsAPI',
-        endpoint: 'https://api.example.com', // Replace after deployment
-        region: 'us-east-1',
+        endpoint: 'https://iokvgd6tm3.execute-api.us-east-2.amazonaws.com/prod',
+        region: 'us-east-2',
+        custom_header: async () => {
+          try {
+            const session = await Auth.currentSession();
+            return { Authorization: `Bearer ${session.getIdToken().getJwtToken()}` };
+          } catch (error) {
+            console.warn('No auth session available:', error);
+            return {};
+          }
+        }
       },
     ],
   },
 });
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+          <h2>Something went wrong.</h2>
+          <button onClick={() => window.location.reload()}>Reload Page</button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function App() {
   return (
-    <div className="App">
-      <div className="dev-notice">
-        <p>🚧 Development Mode - AWS services not connected yet. Deploy infrastructure first.</p>
+    <ErrorBoundary>
+      <div className="App">
+        <Authenticator>
+          {({ signOut, user }) => {
+            const userRole = user?.attributes?.['custom:role'] || 'athlete';
+            
+            return (
+              <Router>
+                <Routes>
+                  {userRole === 'organizer' ? (
+                    <Route path="/*" element={<BackofficeLayout user={user} signOut={signOut} />} />
+                  ) : (
+                    <Route path="/*" element={<AthleteProfile user={user} signOut={signOut} />} />
+                  )}
+                </Routes>
+              </Router>
+            );
+          }}
+        </Authenticator>
       </div>
-      
-      <Authenticator>
-        {({ signOut, user }) => {
-          const userRole = user?.attributes?.['custom:role'] || 'athlete';
-          
-          return (
-            <Router>
-              <Routes>
-                {userRole === 'organizer' ? (
-                  <Route path="/*" element={<BackofficeLayout user={user} signOut={signOut} />} />
-                ) : (
-                  <Route path="/*" element={<AthleteProfile user={user} signOut={signOut} />} />
-                )}
-              </Routes>
-            </Router>
-          );
-        }}
-      </Authenticator>
-      
-      <style jsx>{`
-        .dev-notice {
-          background: #fff3cd;
-          border: 1px solid #ffeaa7;
-          color: #856404;
-          padding: 10px;
-          text-align: center;
-          font-size: 14px;
-        }
-      `}</style>
-    </div>
+    </ErrorBoundary>
   );
 }
 

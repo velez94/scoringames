@@ -5,8 +5,16 @@ function AthleteManagement() {
   const [athletes, setAthletes] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDivision, setFilterDivision] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [editingAthlete, setEditingAthlete] = useState(null);
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    division: 'Open'
+  });
 
-  const divisions = ['Male RX', 'Female RX', 'Male Scaled', 'Female Scaled'];
+  const divisions = ['Open', 'Women', 'Masters', 'Scaled'];
 
   useEffect(() => {
     fetchAthletes();
@@ -15,14 +23,80 @@ function AthleteManagement() {
   const fetchAthletes = async () => {
     try {
       const response = await API.get('CalisthenicsAPI', '/athletes');
-      setAthletes(response);
+      setAthletes(response || []);
     } catch (error) {
       console.error('Error fetching athletes:', error);
+      setAthletes([]);
+    }
+  };
+
+  const handleCreate = () => {
+    setEditingAthlete(null);
+    setFormData({
+      firstName: '',
+      lastName: '',
+      email: '',
+      division: 'Open'
+    });
+    setShowModal(true);
+  };
+
+  const handleEdit = (athlete) => {
+    setEditingAthlete(athlete);
+    setFormData({
+      firstName: athlete.firstName,
+      lastName: athlete.lastName,
+      email: athlete.email,
+      division: athlete.division
+    });
+    setShowModal(true);
+  };
+
+  const handleDelete = async (athleteId) => {
+    if (!window.confirm('Are you sure you want to delete this athlete?')) {
+      return;
+    }
+
+    try {
+      await API.del('CalisthenicsAPI', `/athletes/${athleteId}`);
+      await fetchAthletes();
+    } catch (error) {
+      console.error('Error deleting athlete:', error);
+      alert('Error deleting athlete');
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    try {
+      const athleteData = {
+        ...formData,
+        athleteId: editingAthlete?.athleteId || `athlete-${Date.now()}`,
+        createdAt: editingAthlete?.createdAt || new Date().toISOString()
+      };
+
+      if (editingAthlete) {
+        await API.put('CalisthenicsAPI', `/athletes/${editingAthlete.athleteId}`, {
+          body: athleteData
+        });
+      } else {
+        await API.post('CalisthenicsAPI', '/athletes', {
+          body: athleteData
+        });
+      }
+
+      setShowModal(false);
+      await fetchAthletes();
+    } catch (error) {
+      console.error('Error saving athlete:', error);
+      alert('Error saving athlete');
     }
   };
 
   const filteredAthletes = athletes.filter(athlete => {
-    const matchesSearch = athlete.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const fullName = `${athlete.firstName} ${athlete.lastName}`.toLowerCase();
+    const matchesSearch = fullName.includes(searchTerm.toLowerCase()) ||
                          athlete.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesDivision = !filterDivision || athlete.division === filterDivision;
     return matchesSearch && matchesDivision;
@@ -32,62 +106,77 @@ function AthleteManagement() {
     <div className="athlete-management">
       <div className="page-header">
         <h1>Athlete Management</h1>
-        <div className="header-actions">
-          <input
-            type="text"
-            placeholder="Search athletes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
-          <select
-            value={filterDivision}
-            onChange={(e) => setFilterDivision(e.target.value)}
-            className="filter-select"
-          >
-            <option value="">All Divisions</option>
-            {divisions.map(division => (
-              <option key={division} value={division}>{division}</option>
-            ))}
-          </select>
-        </div>
+        <button onClick={handleCreate} className="btn-primary">
+          Add New Athlete
+        </button>
       </div>
 
-      <div className="athletes-table">
-        <table>
+      <div className="filters">
+        <input
+          type="text"
+          placeholder="Search athletes..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="search-input"
+        />
+        <select
+          value={filterDivision}
+          onChange={(e) => setFilterDivision(e.target.value)}
+          className="filter-select"
+        >
+          <option value="">All Divisions</option>
+          {divisions.map(division => (
+            <option key={division} value={division}>{division}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="table-container">
+        <table className="athletes-table">
           <thead>
             <tr>
-              <th>Name</th>
+              <th>Athlete</th>
               <th>Email</th>
               <th>Division</th>
-              <th>Competitions</th>
-              <th>Last Active</th>
+              <th>Registered</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filteredAthletes.map(athlete => (
-              <tr key={athlete.athleteId}>
-                <td className="athlete-name">
-                  <div className="avatar">
-                    {athlete.name.split(' ').map(n => n[0]).join('')}
-                  </div>
-                  {athlete.name}
-                </td>
-                <td>{athlete.email}</td>
-                <td>
-                  <span className="division-badge">{athlete.division}</span>
-                </td>
-                <td>{athlete.competitions?.length || 0}</td>
-                <td>{new Date(athlete.createdAt).toLocaleDateString()}</td>
-                <td>
-                  <div className="actions">
-                    <button className="btn-sm btn-outline">View</button>
-                    <button className="btn-sm btn-warning">Edit</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {filteredAthletes.map(athlete => {
+              const fullName = `${athlete.firstName} ${athlete.lastName}`;
+              return (
+                <tr key={athlete.athleteId}>
+                  <td className="athlete-name">
+                    <div className="avatar">
+                      {fullName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </div>
+                    {fullName}
+                  </td>
+                  <td>{athlete.email}</td>
+                  <td>
+                    <span className="division-badge">{athlete.division}</span>
+                  </td>
+                  <td>{new Date(athlete.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <div className="actions">
+                      <button 
+                        onClick={() => handleEdit(athlete)}
+                        className="btn-sm btn-outline"
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(athlete.athleteId)}
+                        className="btn-sm btn-danger"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
 
@@ -98,76 +187,138 @@ function AthleteManagement() {
         )}
       </div>
 
-      <div className="stats-cards">
-        <div className="stat-card">
-          <h3>Total Athletes</h3>
-          <div className="stat-number">{athletes.length}</div>
-        </div>
-        <div className="stat-card">
-          <h3>Active This Month</h3>
-          <div className="stat-number">
-            {athletes.filter(a => new Date(a.createdAt) > new Date(Date.now() - 30*24*60*60*1000)).length}
-          </div>
-        </div>
-        <div className="stat-card">
-          <h3>By Division</h3>
-          <div className="division-stats">
-            {divisions.map(division => (
-              <div key={division} className="division-stat">
-                <span>{division}</span>
-                <span>{athletes.filter(a => a.division === division).length}</span>
+      {showModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h2>{editingAthlete ? 'Edit Athlete' : 'Add New Athlete'}</h2>
+              <button 
+                onClick={() => setShowModal(false)}
+                className="close-btn"
+              >
+                ×
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="modal-body">
+              <div className="form-group">
+                <label>First Name</label>
+                <input
+                  type="text"
+                  value={formData.firstName}
+                  onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                  required
+                />
               </div>
-            ))}
+              
+              <div className="form-group">
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={formData.lastName}
+                  onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Division</label>
+                <select
+                  value={formData.division}
+                  onChange={(e) => setFormData({...formData, division: e.target.value})}
+                  required
+                >
+                  {divisions.map(division => (
+                    <option key={division} value={division}>{division}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="modal-actions">
+                <button type="button" onClick={() => setShowModal(false)} className="btn-outline">
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary">
+                  {editingAthlete ? 'Update' : 'Create'} Athlete
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
 
       <style jsx>{`
         .athlete-management {
-          padding: 0;
+          padding: 20px;
         }
         .page-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
           margin-bottom: 30px;
-          padding: 20px;
-          background: white;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .header-actions {
+        .page-header h1 {
+          margin: 0;
+          color: #333;
+        }
+        .btn-primary {
+          background: #007bff;
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 5px;
+          cursor: pointer;
+          font-weight: 500;
+        }
+        .btn-primary:hover {
+          background: #0056b3;
+        }
+        .filters {
           display: flex;
           gap: 15px;
+          margin-bottom: 20px;
         }
-        .search-input,
-        .filter-select {
-          padding: 8px 12px;
+        .search-input, .filter-select {
+          padding: 10px;
           border: 1px solid #ddd;
-          border-radius: 4px;
+          border-radius: 5px;
+          font-size: 14px;
         }
         .search-input {
-          width: 250px;
+          flex: 1;
+          max-width: 300px;
         }
-        .athletes-table {
+        .table-container {
           background: white;
           border-radius: 8px;
           overflow: hidden;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          margin-bottom: 30px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        table {
+        .athletes-table {
           width: 100%;
           border-collapse: collapse;
         }
-        th, td {
-          padding: 12px;
-          text-align: left;
-          border-bottom: 1px solid #eee;
-        }
-        th {
+        .athletes-table th {
           background: #f8f9fa;
-          font-weight: bold;
+          padding: 15px;
+          text-align: left;
+          font-weight: 600;
+          color: #555;
+          border-bottom: 1px solid #dee2e6;
+        }
+        .athletes-table td {
+          padding: 15px;
+          border-bottom: 1px solid #f1f1f1;
         }
         .athlete-name {
           display: flex;
@@ -175,80 +326,121 @@ function AthleteManagement() {
           gap: 10px;
         }
         .avatar {
-          width: 32px;
-          height: 32px;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
           background: #007bff;
           color: white;
-          border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 12px;
           font-weight: bold;
+          font-size: 14px;
         }
         .division-badge {
-          background: #e3f2fd;
-          color: #1976d2;
+          background: #e9ecef;
+          color: #495057;
           padding: 4px 8px;
           border-radius: 12px;
           font-size: 12px;
-          font-weight: bold;
+          font-weight: 500;
         }
         .actions {
           display: flex;
-          gap: 5px;
+          gap: 8px;
         }
         .btn-sm {
-          padding: 4px 8px;
-          border: none;
-          border-radius: 3px;
-          cursor: pointer;
+          padding: 6px 12px;
+          border-radius: 4px;
           font-size: 12px;
+          cursor: pointer;
+          border: 1px solid;
         }
         .btn-outline {
-          background: transparent;
-          border: 1px solid #007bff;
+          background: white;
           color: #007bff;
+          border-color: #007bff;
         }
-        .btn-warning {
-          background: #ffc107;
-          color: #212529;
+        .btn-outline:hover {
+          background: #007bff;
+          color: white;
+        }
+        .btn-danger {
+          background: #dc3545;
+          color: white;
+          border-color: #dc3545;
+        }
+        .btn-danger:hover {
+          background: #c82333;
         }
         .no-data {
           text-align: center;
           padding: 40px;
           color: #666;
         }
-        .stats-cards {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 20px;
-        }
-        .stat-card {
-          background: white;
-          padding: 20px;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .stat-card h3 {
-          margin: 0 0 10px 0;
-          color: #666;
-          font-size: 14px;
-        }
-        .stat-number {
-          font-size: 32px;
-          font-weight: bold;
-          color: #007bff;
-        }
-        .division-stats {
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
           display: flex;
-          flex-direction: column;
-          gap: 5px;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
         }
-        .division-stat {
+        .modal {
+          background: white;
+          border-radius: 8px;
+          width: 90%;
+          max-width: 500px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        .modal-header {
           display: flex;
           justify-content: space-between;
+          align-items: center;
+          padding: 20px;
+          border-bottom: 1px solid #dee2e6;
+        }
+        .modal-header h2 {
+          margin: 0;
+          color: #333;
+        }
+        .close-btn {
+          background: none;
+          border: none;
+          font-size: 24px;
+          cursor: pointer;
+          color: #666;
+        }
+        .modal-body {
+          padding: 20px;
+        }
+        .form-group {
+          margin-bottom: 20px;
+        }
+        .form-group label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: 500;
+          color: #333;
+        }
+        .form-group input,
+        .form-group select {
+          width: 100%;
+          padding: 10px;
+          border: 1px solid #ddd;
+          border-radius: 5px;
           font-size: 14px;
+        }
+        .modal-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+          margin-top: 30px;
         }
       `}</style>
     </div>

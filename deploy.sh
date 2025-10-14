@@ -11,16 +11,16 @@ echo "🔨 Building TypeScript..."
 npm run build
 
 # Bootstrap CDK (only needed once per account/region)
-echo "🏗️ Bootstrapping CDK..."
-npx cdk bootstrap
+#echo "🏗️ Bootstrapping CDK..."
+#npx cdk bootstrap --profile labvel-dev 
 
 # Deploy the stack
 echo "☁️ Deploying to AWS..."
-npx cdk deploy --require-approval never
+npx cdk deploy --require-approval never --profile labvel-dev
 
 # Get outputs
 echo "📋 Getting deployment outputs..."
-OUTPUTS=$(npx cdk list --json)
+OUTPUTS=$(npx cdk list --profile labvel-dev --json)
 
 echo "✅ Deployment complete!"
 echo ""

@@ -70,11 +70,20 @@ export class CalisthenicsAppStack extends cdk.Stack {
     // S3 Bucket for frontend hosting
     const websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
       bucketName: `calisthenics-app-${this.account}`,
-      websiteIndexDocument: 'index.html',
-      websiteErrorDocument: 'error.html',
-      publicReadAccess: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+    });
+
+    // CloudFront Origin Access Control (OAC) - latest CDK syntax
+    const originAccessControl = new cloudfront.CfnOriginAccessControl(this, 'OAC', {
+      originAccessControlConfig: {
+        name: 'calisthenics-app-oac',
+        description: 'OAC for Calisthenics App',
+        originAccessControlOriginType: 's3',
+        signingBehavior: 'always',
+        signingProtocol: 'sigv4',
+      },
     });
 
     // CloudFront Distribution
@@ -83,7 +92,37 @@ export class CalisthenicsAppStack extends cdk.Stack {
         origin: new origins.S3Origin(websiteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       },
+      defaultRootObject: 'index.html',
+      errorResponses: [
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+        },
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+        },
+      ],
     });
+
+    // Add OAC to the distribution
+    const cfnDistribution = distribution.node.defaultChild as cloudfront.CfnDistribution;
+    cfnDistribution.addPropertyOverride('DistributionConfig.Origins.0.S3OriginConfig.OriginAccessIdentity', '');
+    cfnDistribution.addPropertyOverride('DistributionConfig.Origins.0.OriginAccessControlId', originAccessControl.attrId);
+
+    // Grant CloudFront access to S3 bucket via bucket policy
+    websiteBucket.addToResourcePolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject'],
+      resources: [websiteBucket.arnForObjects('*')],
+      principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')],
+      conditions: {
+        StringEquals: {
+          'AWS:SourceArn': `arn:aws:cloudfront::${this.account}:distribution/${distribution.distributionId}`,
+        },
+      },
+    }));
 
     // Lambda Functions
     const apiLambda = new lambda.Function(this, 'ApiLambda', {
@@ -127,10 +166,15 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const eventById = events.addResource('{eventId}');
     eventById.addMethod('GET', integration);
     eventById.addMethod('PUT', integration, { authorizer: cognitoAuthorizer });
+    eventById.addMethod('DELETE', integration, { authorizer: cognitoAuthorizer });
 
     const scores = api.root.addResource('scores');
     scores.addMethod('GET', integration);
-    scores.addMethod('POST', integration, { authorizer: cognitoAuthorizer });
+    scores.addMethod('POST', integration, { authorizer: cognitoAuthorizer }); // Should be admin-only
+
+    // Add route for updating scores: /scores/{eventId}/{athleteId}
+    const scoreByEventAndAthlete = scores.addResource('{eventId}').addResource('{athleteId}');
+    scoreByEventAndAthlete.addMethod('PUT', integration, { authorizer: cognitoAuthorizer });
 
     const leaderboard = scores.addResource('leaderboard');
     leaderboard.addMethod('GET', integration);
@@ -138,6 +182,10 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const athletes = api.root.addResource('athletes');
     athletes.addMethod('GET', integration, { authorizer: cognitoAuthorizer });
     athletes.addMethod('POST', integration, { authorizer: cognitoAuthorizer });
+
+    const athleteById = athletes.addResource('{athleteId}');
+    athleteById.addMethod('PUT', integration, { authorizer: cognitoAuthorizer });
+    athleteById.addMethod('DELETE', integration, { authorizer: cognitoAuthorizer });
 
     // Outputs
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });

@@ -4,6 +4,11 @@
   box-sizing: border-box;
 }
 
+html, body {
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -32,6 +37,31 @@ body {
 @media (max-width: 768px) {
   .container {
     padding: 0 10px;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  
+  /* Make tables responsive */
+  table {
+    width: 100%;
+    font-size: 14px;
+  }
+  
+  /* Responsive table wrapper */
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Ensure content doesn't overflow */
+  * {
+    max-width: 100%;
+  }
+  
+  /* Fix input and form elements */
+  input, select, textarea {
+    max-width: 100%;
+    box-sizing: border-box;
   }
 }
 

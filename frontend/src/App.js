@@ -4,7 +4,7 @@ import { Amplify, Auth } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import BackofficeLayout from './components/BackofficeLayout';
-import AthleteProfile from './components/AthleteProfile';
+import UserSetup from './components/UserSetup';
 
 // Production configuration from CDK deployment
 Amplify.configure({
@@ -62,10 +62,51 @@ class ErrorBoundary extends React.Component {
 }
 
 function App() {
+  const signUpFields = {
+    signUp: {
+      username: {
+        order: 1,
+        placeholder: 'Enter your email',
+        isRequired: true,
+        label: 'Email *'
+      },
+      given_name: {
+        order: 2,
+        placeholder: 'Enter your first name',
+        isRequired: true,
+        label: 'First Name *'
+      },
+      family_name: {
+        order: 3,
+        placeholder: 'Enter your last name',
+        isRequired: true,
+        label: 'Last Name *'
+      },
+      phone_number: {
+        order: 4,
+        placeholder: '+1234567890',
+        isRequired: true,
+        label: 'Phone Number *'
+      },
+      password: {
+        order: 5,
+        placeholder: 'Enter your password',
+        isRequired: true,
+        label: 'Password *'
+      },
+      confirm_password: {
+        order: 6,
+        placeholder: 'Confirm your password',
+        isRequired: true,
+        label: 'Confirm Password *'
+      }
+    }
+  };
+
   return (
     <ErrorBoundary>
       <div className="App">
-        <Authenticator>
+        <Authenticator formFields={signUpFields}>
           {({ signOut, user }) => {
             const userRole = user?.attributes?.['custom:role'] || 'athlete';
             
@@ -75,7 +116,7 @@ function App() {
                   {userRole === 'organizer' ? (
                     <Route path="/*" element={<BackofficeLayout user={user} signOut={signOut} />} />
                   ) : (
-                    <Route path="/*" element={<AthleteProfile user={user} signOut={signOut} />} />
+                    <Route path="/*" element={<UserSetup user={user} signOut={signOut} />} />
                   )}
                 </Routes>
               </Router>

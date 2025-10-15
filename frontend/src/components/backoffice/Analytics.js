@@ -4,6 +4,7 @@ import { API } from 'aws-amplify';
 function Analytics() {
   const [events, setEvents] = useState([]);
   const [athletes, setAthletes] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [allScores, setAllScores] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -14,13 +15,15 @@ function Analytics() {
   const fetchAnalyticsData = async () => {
     try {
       setLoading(true);
-      const [eventsData, athletesData] = await Promise.all([
+      const [eventsData, athletesData, categoriesData] = await Promise.all([
         API.get('CalisthenicsAPI', '/events'),
-        API.get('CalisthenicsAPI', '/athletes')
+        API.get('CalisthenicsAPI', '/athletes'),
+        API.get('CalisthenicsAPI', '/categories')
       ]);
       
       setEvents(eventsData || []);
       setAthletes(athletesData || []);
+      setCategories(categoriesData || []);
       
       // Fetch scores for all events
       let scoresData = [];
@@ -56,12 +59,14 @@ function Analytics() {
     };
   };
 
-  const getDivisionStats = () => {
-    const divisions = {};
+  const getCategoryStats = () => {
+    const categoryCount = {};
     athletes.forEach(athlete => {
-      divisions[athlete.division] = (divisions[athlete.division] || 0) + 1;
+      const categoryId = athlete.categoryId || 'uncategorized';
+      const categoryName = categories.find(c => c.categoryId === categoryId)?.name || 'Uncategorized';
+      categoryCount[categoryName] = (categoryCount[categoryName] || 0) + 1;
     });
-    return divisions;
+    return categoryCount;
   };
 
   const getWodFormatStats = () => {
@@ -77,15 +82,19 @@ function Analytics() {
   const getTopPerformers = () => {
     const athleteScores = {};
     allScores.forEach(score => {
-      if (!athleteScores[score.athleteId]) {
-        athleteScores[score.athleteId] = {
+      // Extract actual athlete ID from composite ID (athleteId#workoutId)
+      const actualAthleteId = score.originalAthleteId || 
+        (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
+      
+      if (!athleteScores[actualAthleteId]) {
+        athleteScores[actualAthleteId] = {
           totalScore: 0,
           count: 0,
-          athlete: athletes.find(a => a.athleteId === score.athleteId)
+          athlete: athletes.find(a => a.athleteId === actualAthleteId)
         };
       }
-      athleteScores[score.athleteId].totalScore += score.score;
-      athleteScores[score.athleteId].count += 1;
+      athleteScores[actualAthleteId].totalScore += score.score;
+      athleteScores[actualAthleteId].count += 1;
     });
 
     return Object.values(athleteScores)
@@ -100,7 +109,13 @@ function Analytics() {
   const getEventParticipation = () => {
     return events.map(event => {
       const eventScores = allScores.filter(score => score.eventId === event.eventId);
-      const uniqueAthletes = new Set(eventScores.map(score => score.athleteId)).size;
+      // Extract actual athlete IDs and count unique participants
+      const uniqueAthletes = new Set(
+        eventScores.map(score => 
+          score.originalAthleteId || 
+          (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId)
+        )
+      ).size;
       return {
         eventName: event.name,
         participants: uniqueAthletes,
@@ -115,7 +130,7 @@ function Analytics() {
   }
 
   const stats = getOverviewStats();
-  const divisionStats = getDivisionStats();
+  const categoryStats = getCategoryStats();
   const wodFormatStats = getWodFormatStats();
   const topPerformers = getTopPerformers();
   const eventParticipation = getEventParticipation();
@@ -151,13 +166,13 @@ function Analytics() {
       </div>
 
       <div className="analytics-grid">
-        {/* Division Distribution */}
+        {/* Category Distribution */}
         <div className="analytics-card">
-          <h3>Athletes by Division</h3>
+          <h3>Athletes by Category</h3>
           <div className="chart-container">
-            {Object.entries(divisionStats).map(([division, count]) => (
-              <div key={division} className="bar-item">
-                <span className="bar-label">{division}</span>
+            {Object.entries(categoryStats).map(([category, count]) => (
+              <div key={category} className="bar-item">
+                <span className="bar-label">{category}</span>
                 <div className="bar-container">
                   <div 
                     className="bar" 
@@ -203,7 +218,12 @@ function Analytics() {
                       'Unknown Athlete'
                     }
                   </div>
-                  <div className="division">{performer.athlete?.division}</div>
+                  <div className="division">
+                    {performer.athlete?.categoryId ? 
+                      categories.find(c => c.categoryId === performer.athlete.categoryId)?.name || 'No Category' :
+                      'No Category'
+                    }
+                  </div>
                 </div>
                 <div className="score">
                   <div className="avg-score">{performer.avgScore.toFixed(1)}</div>

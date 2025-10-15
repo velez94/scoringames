@@ -93,14 +93,21 @@ function Events({ user }) {
       <div className="events-grid">
         {events.map(event => (
           <div key={event.eventId} className="event-card">
-            <h3>{event.name}</h3>
-            <p className="event-date">{new Date(event.date).toLocaleDateString()}</p>
-            <p className="event-status">Status: {event.status}</p>
-            <div className="event-actions">
-              <button className="btn-outline">View Details</button>
-              {userRole !== 'athlete' && (
-                <button className="btn-secondary">Manage</button>
-              )}
+            {event.bannerImage && (
+              <div className="event-banner">
+                <img src={event.bannerImage} alt={event.name} />
+              </div>
+            )}
+            <div className="event-content">
+              <h3>{event.name}</h3>
+              <p className="event-date">{new Date(event.date).toLocaleDateString()}</p>
+              <p className="event-status">Status: {event.status}</p>
+              <div className="event-actions">
+                <button className="btn-outline">View Details</button>
+                {userRole !== 'athlete' && (
+                  <button className="btn-secondary">Manage</button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -124,8 +131,22 @@ function Events({ user }) {
         .event-card {
           background: white;
           border-radius: 8px;
-          padding: 20px;
+          overflow: hidden;
           box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .event-banner {
+          width: 100%;
+          height: 120px;
+          overflow: hidden;
+          background: #f5f5f5;
+        }
+        .event-banner img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .event-content {
+          padding: 20px;
         }
         .event-date {
           color: #666;

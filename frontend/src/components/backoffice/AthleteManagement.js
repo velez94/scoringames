@@ -3,21 +3,23 @@ import { API } from 'aws-amplify';
 
 function AthleteManagement() {
   const [athletes, setAthletes] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDivision, setFilterDivision] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingAthlete, setEditingAthlete] = useState(null);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     email: '',
-    division: 'Open'
+    alias: '',
+    age: '',
+    categoryId: ''
   });
-
-  const divisions = ['Open', 'Women', 'Masters', 'Scaled'];
 
   useEffect(() => {
     fetchAthletes();
+    fetchCategories();
   }, []);
 
   const fetchAthletes = async () => {
@@ -30,13 +32,25 @@ function AthleteManagement() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/categories');
+      setCategories(response || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      setCategories([]);
+    }
+  };
+
   const handleCreate = () => {
     setEditingAthlete(null);
     setFormData({
       firstName: '',
       lastName: '',
       email: '',
-      division: 'Open'
+      alias: '',
+      age: '',
+      categoryId: ''
     });
     setShowModal(true);
   };
@@ -47,7 +61,9 @@ function AthleteManagement() {
       firstName: athlete.firstName,
       lastName: athlete.lastName,
       email: athlete.email,
-      division: athlete.division
+      alias: athlete.alias || '',
+      age: athlete.age || '',
+      categoryId: athlete.categoryId || ''
     });
     setShowModal(true);
   };
@@ -63,6 +79,19 @@ function AthleteManagement() {
     } catch (error) {
       console.error('Error deleting athlete:', error);
       alert('Error deleting athlete');
+    }
+  };
+
+  const handleReset = async (athlete) => {
+    if (window.confirm(`Reset ${athlete.firstName} ${athlete.lastName}? This will force them to complete the welcome setup again.`)) {
+      try {
+        await API.del('CalisthenicsAPI', `/athletes/${athlete.athleteId}`);
+        await fetchAthletes();
+        alert('User reset successfully. They will need to complete setup again on next login.');
+      } catch (error) {
+        console.error('Error resetting user:', error);
+        alert('Error resetting user. Please try again.');
+      }
     }
   };
 
@@ -97,9 +126,10 @@ function AthleteManagement() {
   const filteredAthletes = athletes.filter(athlete => {
     const fullName = `${athlete.firstName} ${athlete.lastName}`.toLowerCase();
     const matchesSearch = fullName.includes(searchTerm.toLowerCase()) ||
-                         athlete.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesDivision = !filterDivision || athlete.division === filterDivision;
-    return matchesSearch && matchesDivision;
+                         athlete.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (athlete.alias && athlete.alias.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesCategory = !filterCategory || athlete.categoryId === filterCategory;
+    return matchesSearch && matchesCategory;
   });
 
   return (
@@ -120,13 +150,13 @@ function AthleteManagement() {
           className="search-input"
         />
         <select
-          value={filterDivision}
-          onChange={(e) => setFilterDivision(e.target.value)}
+          value={filterCategory}
+          onChange={(e) => setFilterCategory(e.target.value)}
           className="filter-select"
         >
-          <option value="">All Divisions</option>
-          {divisions.map(division => (
-            <option key={division} value={division}>{division}</option>
+          <option value="">All Categories</option>
+          {categories.map(category => (
+            <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
           ))}
         </select>
       </div>
@@ -136,8 +166,10 @@ function AthleteManagement() {
           <thead>
             <tr>
               <th>Athlete</th>
+              <th>Alias</th>
               <th>Email</th>
-              <th>Division</th>
+              <th>Age</th>
+              <th>Category</th>
               <th>Registered</th>
               <th>Actions</th>
             </tr>
@@ -153,9 +185,13 @@ function AthleteManagement() {
                     </div>
                     {fullName}
                   </td>
+                  <td>{athlete.alias || '-'}</td>
                   <td>{athlete.email}</td>
+                  <td>{athlete.age || '-'}</td>
                   <td>
-                    <span className="division-badge">{athlete.division}</span>
+                    <span className="category-badge">
+                      {categories.find(c => c.categoryId === athlete.categoryId)?.name || 'Not assigned'}
+                    </span>
                   </td>
                   <td>{new Date(athlete.createdAt).toLocaleDateString()}</td>
                   <td>
@@ -165,6 +201,12 @@ function AthleteManagement() {
                         className="btn-sm btn-outline"
                       >
                         Edit
+                      </button>
+                      <button 
+                        onClick={() => handleReset(athlete)}
+                        className="btn-sm btn-warning"
+                      >
+                        Reset
                       </button>
                       <button 
                         onClick={() => handleDelete(athlete.athleteId)}
@@ -232,14 +274,38 @@ function AthleteManagement() {
               </div>
               
               <div className="form-group">
-                <label>Division</label>
+                <label>Alias/Nickname</label>
+                <input
+                  type="text"
+                  value={formData.alias}
+                  onChange={(e) => setFormData({...formData, alias: e.target.value})}
+                  placeholder="Competition alias"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Age</label>
+                <input
+                  type="number"
+                  value={formData.age}
+                  onChange={(e) => setFormData({...formData, age: e.target.value})}
+                  min="1"
+                  max="100"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Category</label>
                 <select
-                  value={formData.division}
-                  onChange={(e) => setFormData({...formData, division: e.target.value})}
+                  value={formData.categoryId}
+                  onChange={(e) => setFormData({...formData, categoryId: e.target.value})}
                   required
                 >
-                  {divisions.map(division => (
-                    <option key={division} value={division}>{division}</option>
+                  <option value="">Select Category</option>
+                  {categories.map(category => (
+                    <option key={category.categoryId} value={category.categoryId}>
+                      {category.name} ({category.ageRange}, {category.gender})
+                    </option>
                   ))}
                 </select>
               </div>
@@ -337,7 +403,7 @@ function AthleteManagement() {
           font-weight: bold;
           font-size: 14px;
         }
-        .division-badge {
+        .category-badge {
           background: #e9ecef;
           color: #495057;
           padding: 4px 8px;
@@ -372,6 +438,14 @@ function AthleteManagement() {
         }
         .btn-danger:hover {
           background: #c82333;
+        }
+        .btn-warning {
+          background: #ffc107;
+          color: #212529;
+          border-color: #ffc107;
+        }
+        .btn-warning:hover {
+          background: #e0a800;
         }
         .no-data {
           text-align: center;

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { API } from 'aws-amplify';
+import { API, Storage } from 'aws-amplify';
 import EventDetails from './EventDetails';
+import './EventManagement.css';
 
 function EventManagement() {
   const [events, setEvents] = useState([]);
-  const [showModal, setShowModal] = useState(false);
+  const [showEditPage, setShowEditPage] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [formData, setFormData] = useState({
@@ -13,8 +14,12 @@ function EventManagement() {
     description: '',
     maxParticipants: 100,
     registrationDeadline: '',
-    workouts: []
+    workouts: [],
+    imageUrl: ''
   });
+
+  const [imageFile, setImageFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const [showWodModal, setShowWodModal] = useState(false);
   const [wodFormData, setWodFormData] = useState({
@@ -50,7 +55,8 @@ function EventManagement() {
       registrationDeadline: '',
       workouts: []
     });
-    setShowModal(true);
+    setSelectedEventId(null);
+    setShowEditPage(true);
   };
 
   const handleEdit = (event) => {
@@ -63,7 +69,8 @@ function EventManagement() {
       registrationDeadline: event.registrationDeadline || '',
       workouts: event.workouts || []
     });
-    setShowModal(true);
+    setSelectedEventId(null);
+    setShowEditPage(true);
   };
 
   const handleDelete = async (eventId) => {
@@ -76,15 +83,51 @@ function EventManagement() {
     }
   };
 
+  const handleImageUpload = async (file) => {
+    if (!file) return null;
+    
+    try {
+      setUploading(true);
+      const fileName = `events/${Date.now()}-${file.name}`;
+      
+      // Upload to S3 via API
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('fileName', fileName);
+      
+      const response = await API.post('CalisthenicsAPI', '/upload-image', { body: formData });
+      return response.imageUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Failed to upload image');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingEvent) {
-        await API.put('CalisthenicsAPI', `/events/${editingEvent.eventId}`, { body: formData });
-      } else {
-        await API.post('CalisthenicsAPI', '/events', { body: formData });
+      let imageUrl = formData.imageUrl;
+      
+      // Upload image if file is selected
+      if (imageFile) {
+        imageUrl = await handleImageUpload(imageFile);
+        if (!imageUrl) return; // Upload failed
       }
-      setShowModal(false);
+
+      const eventData = { ...formData, imageUrl };
+      
+      if (editingEvent) {
+        await API.put('CalisthenicsAPI', `/events/${editingEvent.eventId}`, { body: eventData });
+      } else {
+        await API.post('CalisthenicsAPI', '/events', { body: eventData });
+      }
+      setShowEditPage(false);
+      setEditingEvent(null);
+      setFormData({ name: '', date: '', description: '', maxParticipants: 100, registrationDeadline: '', workouts: [], imageUrl: '' });
+      setImageFile(null);
       fetchEvents();
     } catch (error) {
       console.error('Error saving event:', error);
@@ -161,7 +204,73 @@ function EventManagement() {
 
   // Show event details if an event is selected
   if (selectedEventId) {
-    return <EventDetails eventId={selectedEventId} onBack={handleBackToList} />;
+    return <EventDetails eventId={selectedEventId} onBack={handleBackToList} onEdit={handleEdit} />;
+  }
+
+  // Show edit page
+  if (showEditPage) {
+    return (
+      <div className="edit-page">
+        <div className="page-header">
+          <button onClick={() => setShowEditPage(false)} className="btn-back">← Back</button>
+          <h1>{editingEvent ? 'Edit Event' : 'Create Event'}</h1>
+        </div>
+        <form onSubmit={handleSubmit} className="edit-form">
+          <div className="form-group">
+            <label>Event Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>Date *</label>
+            <input
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({...formData, date: e.target.value})}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              rows="4"
+            />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Max Participants</label>
+              <input
+                type="number"
+                value={formData.maxParticipants}
+                onChange={(e) => setFormData({...formData, maxParticipants: parseInt(e.target.value)})}
+              />
+            </div>
+            <div className="form-group">
+              <label>Registration Deadline</label>
+              <input
+                type="date"
+                value={formData.registrationDeadline}
+                onChange={(e) => setFormData({...formData, registrationDeadline: e.target.value})}
+              />
+            </div>
+          </div>
+          <div className="form-actions">
+            <button type="submit" className="btn-primary">
+              {editingEvent ? 'Update Event' : 'Create Event'}
+            </button>
+            <button type="button" className="btn-outline" onClick={() => setShowEditPage(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -210,91 +319,6 @@ function EventManagement() {
           </div>
         ))}
       </div>
-
-      {showModal && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>{editingEvent ? 'Edit Event' : 'Create New Event'}</h3>
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>Event Name</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Date</label>
-                  <input
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({...formData, date: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Max Participants</label>
-                  <input
-                    type="number"
-                    value={formData.maxParticipants}
-                    onChange={(e) => setFormData({...formData, maxParticipants: parseInt(e.target.value)})}
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  rows="3"
-                />
-              </div>
-
-              <div className="form-group">
-                <div className="wod-section">
-                  <div className="wod-header">
-                    <label>Workouts (WODs)</label>
-                    <button type="button" onClick={handleAddWod} className="btn-sm btn-primary">
-                      Add WOD
-                    </button>
-                  </div>
-                  
-                  {formData.workouts.length > 0 && (
-                    <div className="wod-list">
-                      {formData.workouts.map((wod, index) => (
-                        <div key={wod.wodId} className="wod-item">
-                          <div className="wod-info">
-                            <strong>{wod.name}</strong> - {wod.format}
-                            {wod.timeLimit && <span> ({wod.timeLimit})</span>}
-                          </div>
-                          <button 
-                            type="button" 
-                            onClick={() => removeWod(wod.wodId)}
-                            className="btn-sm btn-danger"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary">
-                  {editingEvent ? 'Update' : 'Create'}
-                </button>
-                <button type="button" className="btn-outline" onClick={() => setShowModal(false)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {showWodModal && (
         <div className="modal-overlay">
@@ -395,255 +419,6 @@ function EventManagement() {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .event-management {
-          padding: 0;
-        }
-        .page-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 30px;
-          padding: 20px;
-          background: white;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .events-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-          gap: 20px;
-        }
-        .event-card {
-          background: white;
-          border-radius: 8px;
-          padding: 20px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          cursor: pointer;
-          transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .event-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        }
-        .event-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-        .status {
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: bold;
-          text-transform: uppercase;
-        }
-        .status.upcoming { background: #e3f2fd; color: #1976d2; }
-        .status.active { background: #e8f5e8; color: #2e7d32; }
-        .status.completed { background: #f3e5f5; color: #7b1fa2; }
-        .event-actions {
-          display: flex;
-          gap: 8px;
-          margin-top: 15px;
-        }
-        .btn-primary, .btn-success, .btn-warning, .btn-outline, .btn-danger {
-          padding: 6px 12px;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 12px;
-        }
-        .btn-primary { background: #007bff; color: white; }
-        .btn-success { background: #28a745; color: white; }
-        .btn-warning { background: #ffc107; color: #212529; }
-        .btn-danger { background: #dc3545; color: white; }
-        .btn-outline { background: transparent; border: 1px solid #007bff; color: #007bff; }
-        .btn-primary:disabled, .btn-success:disabled, .btn-warning:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .modal {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0,0,0,0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-        }
-        .modal-content {
-          background: white;
-          padding: 30px;
-          border-radius: 8px;
-          width: 90%;
-          max-width: 500px;
-        }
-        .form-group {
-          margin-bottom: 15px;
-        }
-        .form-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 15px;
-        }
-        .form-group label {
-          display: block;
-          margin-bottom: 5px;
-          font-weight: bold;
-        }
-        .form-group input,
-        .form-group textarea {
-          width: 100%;
-          padding: 8px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-        }
-        .form-actions {
-          display: flex;
-          gap: 10px;
-          justify-content: flex-end;
-        }
-        .wod-section {
-          border: 1px solid #ddd;
-          border-radius: 5px;
-          padding: 15px;
-          background: #f9f9f9;
-        }
-        .wod-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-        .wod-list {
-          margin-top: 10px;
-        }
-        .wod-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 3px;
-          margin-bottom: 5px;
-        }
-        .wod-modal {
-          max-width: 600px;
-          max-height: 80vh;
-          overflow-y: auto;
-          background: white;
-          border-radius: 8px;
-          padding: 20px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        }
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0,0,0,0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-        }
-        .modal {
-          background: white;
-          border-radius: 8px;
-          padding: 20px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-          max-width: 500px;
-          width: 90%;
-        }
-        .movements-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-        .movement-row {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 8px;
-          align-items: center;
-        }
-        .movement-row input {
-          flex: 1;
-        }
-        .btn-sm {
-          padding: 4px 8px;
-          font-size: 12px;
-          border-radius: 3px;
-          border: 1px solid;
-          cursor: pointer;
-        }
-        .btn-primary {
-          background: #007bff;
-          color: white;
-          border-color: #007bff;
-        }
-        .btn-outline {
-          background: white;
-          color: #007bff;
-          border-color: #007bff;
-        }
-        .btn-danger {
-          background: #dc3545;
-          color: white;
-          border-color: #dc3545;
-        }
-        .event-description {
-          color: #666;
-          margin: 10px 0;
-          font-size: 14px;
-        }
-        .event-stats {
-          margin: 10px 0;
-          font-size: 14px;
-          color: #007bff;
-        }
-        @media (max-width: 768px) {
-          .page-header {
-            flex-direction: column;
-            gap: 15px;
-            text-align: center;
-          }
-          .events-grid {
-            grid-template-columns: 1fr;
-            gap: 15px;
-          }
-          .event-card {
-            padding: 15px;
-          }
-          .event-actions {
-            flex-direction: column;
-            gap: 8px;
-          }
-          .modal {
-            width: 95%;
-            margin: 10px;
-            max-height: 90vh;
-          }
-          .form-row {
-            flex-direction: column;
-          }
-          .wod-modal {
-            width: 95%;
-            max-width: none;
-          }
-          .movement-row {
-            flex-direction: column;
-            gap: 8px;
-          }
-        }
-      `}</style>
     </div>
   );
 }

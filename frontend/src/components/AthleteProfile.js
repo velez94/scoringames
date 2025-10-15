@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import AthleteLeaderboard from './AthleteLeaderboard';
 
 function AthleteProfile({ user, signOut }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('profile');
   const [events, setEvents] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [scores, setScores] = useState([]);
   const [allScores, setAllScores] = useState([]);
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [registrations, setRegistrations] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -18,6 +23,8 @@ function AthleteProfile({ user, signOut }) {
       setLoading(true);
       await fetchProfile();
       await fetchEvents();
+      await fetchCategories();
+      await fetchRegistrations();
       // fetchScores will be called after events are loaded
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -48,7 +55,7 @@ function AthleteProfile({ user, signOut }) {
           firstName: user?.attributes?.given_name || '',
           lastName: user?.attributes?.family_name || '',
           email: user?.attributes?.email || '',
-          division: user?.attributes?.['custom:division'] || 'Open'
+          categoryId: user?.attributes?.['custom:categoryId'] || null
         });
       }
     } catch (error) {
@@ -58,7 +65,7 @@ function AthleteProfile({ user, signOut }) {
         firstName: user?.attributes?.given_name || '',
         lastName: user?.attributes?.family_name || '',
         email: user?.attributes?.email || '',
-        division: user?.attributes?.['custom:division'] || 'Open'
+        categoryId: user?.attributes?.['custom:categoryId'] || null
       });
     }
   };
@@ -71,6 +78,71 @@ function AthleteProfile({ user, signOut }) {
       console.error('Error fetching events:', error);
       setEvents([]);
     }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/categories');
+      setCategories(response || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      setCategories([]);
+    }
+  };
+
+  const fetchRegistrations = async () => {
+    try {
+      // For now, use localStorage to track registrations
+      // In production, this would be an API call
+      const storedRegistrations = localStorage.getItem(`registrations_${user?.attributes?.email}`);
+      setRegistrations(storedRegistrations ? JSON.parse(storedRegistrations) : []);
+    } catch (error) {
+      console.error('Error fetching registrations:', error);
+    }
+  };
+
+  const handleEditProfile = () => {
+    setEditForm({...profile});
+    setEditMode(true);
+  };
+
+  const handleSaveProfile = async () => {
+    try {
+      if (profile.athleteId) {
+        await API.put('CalisthenicsAPI', `/athletes/${profile.athleteId}`, { body: editForm });
+      } else {
+        await API.post('CalisthenicsAPI', '/athletes', { body: editForm });
+      }
+      setProfile(editForm);
+      setEditMode(false);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+    }
+  };
+
+  const handleRegisterForEvent = async (eventId, categoryId) => {
+    try {
+      const registration = {
+        athleteId: profile.athleteId,
+        eventId,
+        categoryId,
+        registrationDate: new Date().toISOString()
+      };
+      
+      // Store registration locally (in production, this would be an API call)
+      const updatedRegistrations = [...registrations, registration];
+      setRegistrations(updatedRegistrations);
+      localStorage.setItem(`registrations_${user?.attributes?.email}`, JSON.stringify(updatedRegistrations));
+      
+      console.log('Registering for event:', registration);
+      alert('Registration successful!');
+    } catch (error) {
+      console.error('Error registering for event:', error);
+    }
+  };
+
+  const isRegisteredForEvent = (eventId) => {
+    return registrations.some(reg => reg.eventId === eventId);
   };
 
   const fetchScores = async () => {
@@ -180,7 +252,7 @@ function AthleteProfile({ user, signOut }) {
             </div>
             <div>
               <h1>{fullName}</h1>
-              <p>{profile.division}</p>
+              <p>{categories.find(c => c.categoryId === profile.categoryId)?.name || 'Category not assigned'}</p>
               <p>{profile.email}</p>
             </div>
           </div>
@@ -207,39 +279,103 @@ function AthleteProfile({ user, signOut }) {
         >
           Events
         </button>
+        <button 
+          className={activeTab === 'leaderboard' ? 'active' : ''} 
+          onClick={() => setActiveTab('leaderboard')}
+        >
+          Leaderboard
+        </button>
       </nav>
 
       <main className="profile-content">
         {activeTab === 'profile' && (
           <div className="profile-tab">
-            <div className="stats-grid">
-              <div className="stat-card">
-                <h3>Total Competitions</h3>
-                <p>{events.length}</p>
-              </div>
-              <div className="stat-card">
-                <h3>Personal Bests</h3>
-                <p>{Object.keys(personalBests).length}</p>
-              </div>
-              <div className="stat-card">
-                <h3>Division</h3>
-                <p>{profile.division}</p>
-              </div>
+            <div className="profile-header-section">
+              <h2>Profile Information</h2>
+              {!editMode ? (
+                <button onClick={handleEditProfile} className="edit-btn">Edit Profile</button>
+              ) : (
+                <div className="edit-actions">
+                  <button onClick={handleSaveProfile} className="save-btn">Save</button>
+                  <button onClick={() => setEditMode(false)} className="cancel-btn">Cancel</button>
+                </div>
+              )}
             </div>
 
+            {editMode ? (
+              <div className="edit-form">
+                <div className="form-group">
+                  <label>First Name</label>
+                  <input 
+                    value={editForm.firstName || ''} 
+                    onChange={(e) => setEditForm({...editForm, firstName: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Last Name</label>
+                  <input 
+                    value={editForm.lastName || ''} 
+                    onChange={(e) => setEditForm({...editForm, lastName: e.target.value})}
+                  />
+                </div>
+                <div className="form-note">
+                  <p><em>Note: To change your category, please contact an administrator.</em></p>
+                </div>
+              </div>
+            ) : (
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <h3>Total Competitions</h3>
+                  <p>{events.length}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Personal Bests</h3>
+                  <p>{Object.keys(personalBests).length}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Category</h3>
+                  <p>{categories.find(c => c.categoryId === profile.categoryId)?.name || 'Not assigned'}</p>
+                </div>
+              </div>
+            )}
+
             <div className="personal-bests">
-              <h3>Personal Bests</h3>
+              <h3>🏆 Personal Bests</h3>
               {Object.keys(personalBests).length > 0 ? (
-                <div className="bests-list">
-                  {Object.values(personalBests).map((best, index) => (
-                    <div key={index} className="best-item">
-                      <span>Event {best.eventId} - Workout {best.workoutId}</span>
-                      <span>{best.score} points</span>
-                    </div>
-                  ))}
+                <div className="bests-grid">
+                  {Object.values(personalBests).map((best, index) => {
+                    const eventName = getEventName(best.eventId);
+                    const workoutName = getWorkoutName(best.eventId, best.workoutId);
+                    const ranking = getAthleteRanking(best.eventId, best.workoutId);
+                    
+                    return (
+                      <div key={index} className="best-card">
+                        <div className="best-header">
+                          <div className="best-icon">🥇</div>
+                          <div className="best-info">
+                            <h4>{eventName}</h4>
+                            <p className="workout-name">{workoutName}</p>
+                          </div>
+                        </div>
+                        <div className="best-score">
+                          <span className="score-value">{best.score}</span>
+                          <span className="score-label">points</span>
+                        </div>
+                        {ranking.rank && (
+                          <div className="best-ranking">
+                            <span className="rank-badge">#{ranking.rank} of {ranking.total}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <p>No personal bests recorded yet.</p>
+                <div className="no-bests">
+                  <div className="no-bests-icon">🎯</div>
+                  <p>No personal bests recorded yet.</p>
+                  <p className="no-bests-subtitle">Complete some workouts to see your achievements here!</p>
+                </div>
               )}
             </div>
           </div>
@@ -306,21 +442,104 @@ function AthleteProfile({ user, signOut }) {
 
         {activeTab === 'events' && (
           <div className="events-tab">
-            <h3>Available Events</h3>
+            <h3>🎯 Competition Events</h3>
             {events.length > 0 ? (
-              <div className="events-list">
-                {events.map((event) => (
-                  <div key={event.eventId} className="event-item">
-                    <h4>{event.name}</h4>
-                    <p>{event.description}</p>
-                    <p>Date: {new Date(event.date).toLocaleDateString()}</p>
-                    <p>Status: {event.status}</p>
-                  </div>
-                ))}
+              <div className="events-grid">
+                {events.map((event) => {
+                  const isRegistered = isRegisteredForEvent(event.eventId);
+                  const canRegister = event.status === 'upcoming' && profile.categoryId && !isRegistered;
+                  
+                  return (
+                    <div key={event.eventId} className={`event-card ${isRegistered ? 'registered' : ''}`}>
+                      {event.imageUrl && (
+                        <div className="event-banner">
+                          <img src={event.imageUrl} alt={event.name} />
+                        </div>
+                      )}
+                      
+                      <div className="event-content">
+                        <div className="event-header">
+                          <h4>{event.name}</h4>
+                          <div className={`status-badge ${event.status}`}>
+                            {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                          </div>
+                        </div>
+                        
+                        <div className="event-details">
+                          <p className="event-description">{event.description}</p>
+                          
+                          <div className="event-meta">
+                            <div className="meta-item">
+                              <span className="meta-icon">📅</span>
+                              <span>{new Date(event.date).toLocaleDateString()}</span>
+                            </div>
+                            
+                            {event.maxParticipants && (
+                              <div className="meta-item">
+                                <span className="meta-icon">👥</span>
+                                <span>Max: {event.maxParticipants} participants</span>
+                              </div>
+                            )}
+                            
+                            {profile.categoryId && (
+                              <div className="meta-item">
+                                <span className="meta-icon">🏆</span>
+                                <span>Category: {categories.find(c => c.categoryId === profile.categoryId)?.name}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="event-actions">
+                          {isRegistered && (
+                            <div className="registration-status registered">
+                              <span className="status-icon">✅</span>
+                              <span>Registered</span>
+                            </div>
+                          )}
+                          
+                          {canRegister && (
+                            <button 
+                              onClick={() => handleRegisterForEvent(event.eventId, profile.categoryId)}
+                              className="register-btn"
+                            >
+                              Register for Event
+                            </button>
+                          )}
+                          
+                          {event.status === 'upcoming' && !profile.categoryId && (
+                            <div className="registration-status no-category">
+                              <span className="status-icon">⚠️</span>
+                              <span>Category assignment required</span>
+                            </div>
+                          )}
+                          
+                          {event.status !== 'upcoming' && !isRegistered && (
+                            <div className="registration-status unavailable">
+                              <span className="status-icon">🔒</span>
+                              <span>Registration closed</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <p>No events available.</p>
+              <div className="no-events">
+                <div className="no-events-icon">📅</div>
+                <p>No events available at the moment.</p>
+                <p className="no-events-subtitle">Check back later for upcoming competitions!</p>
+              </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'leaderboard' && (
+          <div className="leaderboard-tab">
+            <h3>Competition Leaderboard</h3>
+            <AthleteLeaderboard userProfile={profile} />
           </div>
         )}
       </main>
@@ -485,6 +704,96 @@ function AthleteProfile({ user, signOut }) {
           padding: 50px;
           font-size: 18px;
         }
+        .profile-header-section {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+        .edit-actions {
+          display: flex;
+          gap: 10px;
+        }
+        .edit-btn, .save-btn, .cancel-btn {
+          padding: 8px 16px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .edit-btn {
+          background: #007bff;
+          color: white;
+        }
+        .save-btn {
+          background: #28a745;
+          color: white;
+        }
+        .cancel-btn {
+          background: #6c757d;
+          color: white;
+        }
+        .edit-form {
+          background: #f8f9fa;
+          padding: 20px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+        .form-group {
+          margin-bottom: 15px;
+        }
+        .form-group label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: bold;
+        }
+        .form-group input, .form-group select {
+          width: 100%;
+          padding: 8px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+        }
+        .registration-section {
+          margin-top: 15px;
+          padding-top: 15px;
+          border-top: 1px solid #eee;
+        }
+        .category-selection {
+          margin-top: 10px;
+        }
+        .category-selection label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: bold;
+        }
+        .category-selection select {
+          padding: 8px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          min-width: 200px;
+        }
+        .register-btn {
+          background: #28a745;
+          color: white;
+          padding: 10px 20px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: bold;
+        }
+        .register-btn:hover {
+          background: #218838;
+        }
+        .no-category-message {
+          color: #dc3545;
+          font-style: italic;
+        }
+        .form-note {
+          background: #fff3cd;
+          border: 1px solid #ffeaa7;
+          padding: 10px;
+          border-radius: 4px;
+          margin-top: 10px;
+        }
         @media (max-width: 768px) {
           .profile-header {
             padding: 15px;
@@ -566,6 +875,336 @@ function AthleteProfile({ user, signOut }) {
           .score-details {
             flex-direction: column;
             gap: 10px;
+          }
+        }
+        .personal-bests {
+          margin-top: 30px;
+        }
+        .personal-bests h3 {
+          margin-bottom: 20px;
+          color: #333;
+          font-size: 24px;
+        }
+        .bests-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 20px;
+        }
+        .best-card {
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          border: 1px solid #e9ecef;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .best-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 15px rgba(0,0,0,0.15);
+        }
+        .best-header {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+          margin-bottom: 15px;
+        }
+        .best-icon {
+          font-size: 32px;
+          background: linear-gradient(135deg, #ffd700, #ffed4e);
+          border-radius: 50%;
+          width: 50px;
+          height: 50px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 8px rgba(255,215,0,0.3);
+        }
+        .best-info h4 {
+          margin: 0 0 5px 0;
+          color: #333;
+          font-size: 18px;
+          font-weight: 600;
+        }
+        .workout-name {
+          margin: 0;
+          color: #666;
+          font-size: 14px;
+        }
+        .best-score {
+          text-align: center;
+          margin: 20px 0;
+        }
+        .score-value {
+          display: block;
+          font-size: 36px;
+          font-weight: bold;
+          color: #007bff;
+          line-height: 1;
+        }
+        .score-label {
+          font-size: 14px;
+          color: #666;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+        }
+        .best-ranking {
+          text-align: center;
+          margin-top: 15px;
+        }
+        .rank-badge {
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          color: white;
+          padding: 6px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .no-bests {
+          text-align: center;
+          padding: 60px 20px;
+          background: white;
+          border-radius: 12px;
+          border: 2px dashed #dee2e6;
+        }
+        .no-bests-icon {
+          font-size: 48px;
+          margin-bottom: 20px;
+        }
+        .no-bests p {
+          margin: 10px 0;
+          color: #666;
+        }
+        .no-bests-subtitle {
+          font-size: 14px;
+          color: #999;
+        }
+        @media (max-width: 768px) {
+          .bests-grid {
+            grid-template-columns: 1fr;
+          }
+          .best-card {
+            padding: 15px;
+          }
+          .best-icon {
+            width: 40px;
+            height: 40px;
+            font-size: 24px;
+          }
+          .best-info h4 {
+            font-size: 16px;
+          }
+          .score-value {
+            font-size: 28px;
+          }
+        }
+        @media (max-width: 480px) {
+          .personal-bests h3 {
+            font-size: 20px;
+          }
+          .best-header {
+            gap: 10px;
+          }
+          .score-value {
+            font-size: 24px;
+          }
+          .no-bests {
+            padding: 40px 15px;
+          }
+          .no-bests-icon {
+            font-size: 36px;
+          }
+        }
+        .events-tab h3 {
+          margin-bottom: 25px;
+          color: #333;
+          font-size: 24px;
+        }
+        .events-grid {
+          display: grid;
+          gap: 20px;
+        }
+        .event-card {
+          background: white;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          border: 1px solid #e9ecef;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .event-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 15px rgba(0,0,0,0.15);
+        }
+        .event-card.registered {
+          border-left: 4px solid #28a745;
+          background: linear-gradient(135deg, #f8fff9, #ffffff);
+        }
+        .event-banner {
+          width: 100%;
+          height: 200px;
+          overflow: hidden;
+          position: relative;
+        }
+        .event-banner img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          transition: transform 0.3s ease;
+        }
+        .event-card:hover .event-banner img {
+          transform: scale(1.05);
+        }
+        .event-content {
+          padding: 24px;
+        }
+        .event-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+        .event-header h4 {
+          margin: 0;
+          color: #333;
+          font-size: 20px;
+          font-weight: 600;
+        }
+        .status-badge {
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .status-badge.upcoming {
+          background: #e3f2fd;
+          color: #1976d2;
+        }
+        .status-badge.active {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+        .status-badge.completed {
+          background: #f3e5f5;
+          color: #7b1fa2;
+        }
+        .event-details {
+          margin-bottom: 20px;
+        }
+        .event-description {
+          color: #666;
+          margin-bottom: 16px;
+          line-height: 1.5;
+        }
+        .event-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .meta-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: #555;
+          font-size: 14px;
+        }
+        .meta-icon {
+          font-size: 16px;
+          width: 20px;
+          text-align: center;
+        }
+        .event-actions {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+        .registration-status {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 12px 20px;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 14px;
+        }
+        .registration-status.registered {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+        .registration-status.no-category {
+          background: #fff3cd;
+          color: #856404;
+        }
+        .registration-status.unavailable {
+          background: #f8d7da;
+          color: #721c24;
+        }
+        .status-icon {
+          font-size: 16px;
+        }
+        .register-btn {
+          background: linear-gradient(135deg, #28a745, #20c997);
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: 600;
+          transition: all 0.2s;
+          box-shadow: 0 2px 4px rgba(40,167,69,0.2);
+        }
+        .register-btn:hover {
+          background: linear-gradient(135deg, #218838, #1ea085);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(40,167,69,0.3);
+        }
+        .no-events {
+          text-align: center;
+          padding: 60px 20px;
+          background: white;
+          border-radius: 12px;
+          border: 2px dashed #dee2e6;
+        }
+        .no-events-icon {
+          font-size: 48px;
+          margin-bottom: 20px;
+        }
+        .no-events p {
+          margin: 10px 0;
+          color: #666;
+        }
+        .no-events-subtitle {
+          font-size: 14px;
+          color: #999;
+        }
+        @media (max-width: 768px) {
+          .event-card {
+            overflow: hidden;
+          }
+          .event-content {
+            padding: 16px;
+          }
+          .event-banner {
+            height: 150px;
+          }
+          .event-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+          }
+          .event-meta {
+            gap: 6px;
+          }
+          .meta-item {
+            font-size: 13px;
+          }
+          .register-btn {
+            width: 100%;
+            padding: 14px;
           }
         }
       `}</style>

@@ -9,6 +9,7 @@ function AthleteLeaderboard({ userProfile }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [athletes, setAthletes] = useState([]);
   const [allScores, setAllScores] = useState([]);
+  const [wods, setWods] = useState([]);
   const [expandedCards, setExpandedCards] = useState({});
 
   useEffect(() => {
@@ -24,6 +25,7 @@ function AthleteLeaderboard({ userProfile }) {
   useEffect(() => {
     if (selectedEvent) {
       fetchEventScores();
+      fetchEventWods();
       
       // Auto-refresh every 5 seconds, but only when tab is visible
       const interval = setInterval(() => {
@@ -45,7 +47,7 @@ function AthleteLeaderboard({ userProfile }) {
   const fetchData = async () => {
     try {
       const [eventsRes, athletesRes, categoriesRes] = await Promise.all([
-        API.get('CalisthenicsAPI', '/events'),
+        API.get('CalisthenicsAPI', '/public/events'),
         API.get('CalisthenicsAPI', '/athletes'),
         API.get('CalisthenicsAPI', '/categories')
       ]);
@@ -68,6 +70,16 @@ function AthleteLeaderboard({ userProfile }) {
     }
   };
 
+  const fetchEventWods = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', `/wods?eventId=${selectedEvent.eventId}`);
+      setWods(response || []);
+    } catch (error) {
+      console.error('Error fetching WODs:', error);
+      setWods([]);
+    }
+  };
+
   const calculateLeaderboard = () => {
     if (!selectedCategory || allScores.length === 0) {
       setLeaderboard([]);
@@ -76,12 +88,20 @@ function AthleteLeaderboard({ userProfile }) {
 
     // Filter athletes by selected category
     const filteredAthletes = athletes.filter(athlete => athlete.categoryId === selectedCategory);
-    const athleteIds = filteredAthletes.map(athlete => athlete.athleteId);
+    
+    // Create a map of all possible athlete identifiers
+    const athleteIdMap = new Map();
+    filteredAthletes.forEach(athlete => {
+      athleteIdMap.set(athlete.athleteId, athlete);
+      athleteIdMap.set(athlete.userId, athlete);
+      if (athlete.email) athleteIdMap.set(athlete.email, athlete);
+    });
     
     // Filter scores to only include athletes from selected category
     const filteredScores = allScores.filter(score => {
+      if (!score || !score.athleteId) return false;
       const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
-      return athleteIds.includes(actualAthleteId);
+      return athleteIdMap.has(actualAthleteId);
     });
 
     const athletePoints = {};
@@ -89,14 +109,14 @@ function AthleteLeaderboard({ userProfile }) {
     // Group scores by workout
     const workoutScores = {};
     filteredScores.forEach(score => {
-      if (!workoutScores[score.workoutId]) {
-        workoutScores[score.workoutId] = [];
+      if (!workoutScores[score.wodId]) {
+        workoutScores[score.wodId] = [];
       }
-      workoutScores[score.workoutId].push(score);
+      workoutScores[score.wodId].push(score);
     });
 
     // Calculate points for each workout
-    Object.entries(workoutScores).forEach(([workoutId, wodScores]) => {
+    Object.entries(workoutScores).forEach(([wodId, wodScores]) => {
       // Sort by score (descending - higher is better)
       const sortedScores = wodScores.sort((a, b) => b.score - a.score);
       
@@ -107,7 +127,11 @@ function AthleteLeaderboard({ userProfile }) {
         const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
         
         if (!athletePoints[actualAthleteId]) {
-          const athlete = athletes.find(a => a.athleteId === actualAthleteId);
+          const athlete = athletes.find(a => 
+            a.athleteId === actualAthleteId || 
+            a.userId === actualAthleteId || 
+            a.email === actualAthleteId
+          );
           athletePoints[actualAthleteId] = {
             athlete,
             totalPoints: 0,
@@ -119,8 +143,8 @@ function AthleteLeaderboard({ userProfile }) {
         athletePoints[actualAthleteId].totalPoints += points;
         athletePoints[actualAthleteId].workoutCount += 1;
         athletePoints[actualAthleteId].workouts.push({
-          workoutId,
-          workoutName: selectedEvent.workouts?.find(w => w.wodId === workoutId)?.name || `WOD ${workoutId}`,
+          wodId,
+          workoutName: wods.find(w => w.wodId === wodId)?.name || `WOD ${wodId}`,
           position,
           points
         });
@@ -182,7 +206,7 @@ function AthleteLeaderboard({ userProfile }) {
             value={selectedCategory} 
             onChange={(e) => setSelectedCategory(e.target.value)}
           >
-            <option value="">All Categories</option>
+            {!selectedCategory && <option value="">Select Category</option>}
             {categories.map(category => (
               <option key={category.categoryId} value={category.categoryId}>
                 {category.name}
@@ -201,7 +225,7 @@ function AthleteLeaderboard({ userProfile }) {
       {selectedEvent && (
         <div className="leaderboard-content">
           <h3>
-            🏆 {selectedEvent.name} - {categories.find(c => c.categoryId === selectedCategory)?.name || 'All Categories'}
+            🏆 {selectedEvent.name} - {categories.find(c => c.categoryId === selectedCategory)?.name || 'Select a category'}
           </h3>
           
           {leaderboard.length > 0 ? (

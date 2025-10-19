@@ -1,48 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useOrganization } from '../../contexts/OrganizationContext';
+import './Backoffice.css';
 
 function Leaderboard() {
+  const { selectedOrganization } = useOrganization();
+  const [view, setView] = useState('wod'); // 'wod' or 'general'
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [wods, setWods] = useState([]);
+  const [athletes, setAthletes] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedWod, setSelectedWod] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [leaderboard, setLeaderboard] = useState([]);
-  const [athletes, setAthletes] = useState([]);
+  const [scores, setScores] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchEvents();
-    fetchAthletes();
+    if (selectedOrganization) {
+      fetchEvents();
+    }
     fetchCategories();
-  }, []);
+    fetchAthletes();
+  }, [selectedOrganization]);
 
   useEffect(() => {
-    if (selectedEvent && selectedWod) {
-      fetchLeaderboard();
+    if (selectedEvent) {
+      fetchWods();
+      fetchScores();
     }
-  }, [selectedEvent, selectedWod]);
+  }, [selectedEvent]);
 
   useEffect(() => {
-    if (selectedEvent && selectedWod) {
-      fetchLeaderboard();
+    if (selectedEvent && (selectedWod || view === 'general')) {
+      fetchScores();
     }
-  }, [selectedCategory]);
+  }, [selectedWod, selectedCategory]);
 
   const fetchEvents = async () => {
+    if (!selectedOrganization) return;
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
+      const response = await API.get('CalisthenicsAPI', '/competitions', {
+        queryStringParameters: { organizationId: selectedOrganization.organizationId }
+      });
       setEvents(response || []);
     } catch (error) {
       console.error('Error fetching events:', error);
-    }
-  };
-
-  const fetchAthletes = async () => {
-    try {
-      const response = await API.get('CalisthenicsAPI', '/athletes');
-      setAthletes(response || []);
-    } catch (error) {
-      console.error('Error fetching athletes:', error);
     }
   };
 
@@ -55,68 +58,132 @@ function Leaderboard() {
     }
   };
 
-  const fetchLeaderboard = async () => {
+  const fetchAthletes = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/athletes');
+      setAthletes(response || []);
+    } catch (error) {
+      console.error('Error fetching athletes:', error);
+    }
+  };
+
+  const fetchWods = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', `/wods?eventId=${selectedEvent.eventId}`);
+      setWods(response || []);
+    } catch (error) {
+      console.error('Error fetching WODs:', error);
+    }
+  };
+
+  const fetchScores = async () => {
+    setLoading(true);
     try {
       const response = await API.get('CalisthenicsAPI', `/scores?eventId=${selectedEvent.eventId}`);
-      let wodScores = response.filter(score => score.workoutId === selectedWod.wodId);
-      
-      // Filter by category if selected
-      if (selectedCategory) {
-        const categoryAthletes = athletes.filter(athlete => athlete.categoryId === selectedCategory);
-        const categoryAthleteIds = categoryAthletes.map(athlete => athlete.athleteId);
-        
-        wodScores = wodScores.filter(score => {
-          const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
-          return categoryAthleteIds.includes(actualAthleteId);
-        });
-      }
-      
-      // Sort by score (descending for most formats)
-      const sortedScores = wodScores.sort((a, b) => {
-        if (selectedWod.format === 'AMRAP' || selectedWod.format === 'Ladder') {
-          return b.score - a.score; // Higher is better
-        }
-        return a.score - b.score; // Lower is better (time-based)
-      });
-
-      setLeaderboard(sortedScores);
+      setScores(response || []);
     } catch (error) {
-      console.error('Error fetching leaderboard:', error);
+      console.error('Error fetching scores:', error);
+      setScores([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getAthleteInfo = (athleteId) => {
-    // Use originalAthleteId if available, fallback to athleteId
-    const actualAthleteId = athleteId.includes('#') ? athleteId.split('#')[0] : athleteId;
-    const athlete = athletes.find(athlete => athlete.athleteId === actualAthleteId);
-    if (!athlete) {
-      // Try alternative matching methods
-      const athleteByEmail = athletes.find(athlete => athlete.email === actualAthleteId);
-      if (athleteByEmail) return athleteByEmail;
-      
-      // Try partial ID matching for Cognito IDs
-      const athleteByPartialId = athletes.find(athlete => 
-        athlete.athleteId && actualAthleteId && athlete.athleteId.includes(actualAthleteId.split('-')[0])
-      );
-      if (athleteByPartialId) return athleteByPartialId;
+  const getWodLeaderboard = () => {
+    if (!selectedWod) return [];
+    
+    let filtered = scores.filter(s => s.wodId === selectedWod.wodId);
+    if (selectedCategory) {
+      filtered = filtered.filter(s => s.categoryId === selectedCategory);
     }
-    return athlete;
+    
+    return filtered.sort((a, b) => b.score - a.score);
   };
 
-  const getRankSuffix = (rank) => {
-    if (rank === 1) return 'st';
-    if (rank === 2) return 'nd';
-    if (rank === 3) return 'rd';
-    return 'th';
+  const getGeneralLeaderboard = () => {
+    const athletePoints = {};
+    
+    const filtered = selectedCategory 
+      ? scores.filter(s => s.categoryId === selectedCategory)
+      : scores;
+
+    const byWod = {};
+    filtered.forEach(score => {
+      if (!byWod[score.wodId]) byWod[score.wodId] = [];
+      byWod[score.wodId].push(score);
+    });
+
+    Object.values(byWod).forEach(wodScores => {
+      const sorted = wodScores.sort((a, b) => b.score - a.score);
+      sorted.forEach((score, idx) => {
+        const points = Math.max(100 - idx, 1);
+        if (!athletePoints[score.athleteId]) {
+          athletePoints[score.athleteId] = {
+            athleteId: score.athleteId,
+            categoryId: score.categoryId,
+            totalPoints: 0,
+            wodResults: []
+          };
+        }
+        athletePoints[score.athleteId].totalPoints += points;
+        const wod = wods.find(w => w.wodId === score.wodId);
+        athletePoints[score.athleteId].wodResults.push({
+          wodName: wod?.name || score.wodId,
+          position: idx + 1,
+          points,
+          score: score.score
+        });
+      });
+    });
+
+    return Object.values(athletePoints)
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+      .map((a, idx) => ({ ...a, rank: idx + 1 }));
   };
+
+  const getRankClass = (rank) => {
+    if (rank === 1) return 'gold';
+    if (rank === 2) return 'silver';
+    if (rank === 3) return 'bronze';
+    return '';
+  };
+
+  const getAthleteName = (athleteId) => {
+    const athlete = athletes.find(a => 
+      a.athleteId === athleteId || 
+      a.userId === athleteId || 
+      a.email === athleteId
+    );
+    if (athlete) {
+      return `${athlete.firstName} ${athlete.lastName}`;
+    }
+    return athleteId;
+  };
+
+  const leaderboard = view === 'wod' ? getWodLeaderboard() : getGeneralLeaderboard();
 
   return (
     <div className="leaderboard">
       <h1>Leaderboard</h1>
 
-      <div className="selection-panel">
+      <div className="view-tabs">
+        <button 
+          className={view === 'wod' ? 'active' : ''} 
+          onClick={() => setView('wod')}
+        >
+          WOD Leaderboard
+        </button>
+        <button 
+          className={view === 'general' ? 'active' : ''} 
+          onClick={() => setView('general')}
+        >
+          General Leaderboard
+        </button>
+      </div>
+
+      <div className="filters">
         <div className="form-group">
-          <label>Select Event</label>
+          <label>Event</label>
           <select 
             value={selectedEvent?.eventId || ''} 
             onChange={(e) => {
@@ -125,29 +192,29 @@ function Leaderboard() {
               setSelectedWod(null);
             }}
           >
-            <option value="">Choose an event...</option>
+            <option value="">Select Event</option>
             {events.map(event => (
               <option key={event.eventId} value={event.eventId}>
-                {event.name} - {new Date(event.date).toLocaleDateString()}
+                {event.name}
               </option>
             ))}
           </select>
         </div>
 
-        {selectedEvent && selectedEvent.workouts?.length > 0 && (
+        {view === 'wod' && selectedEvent && (
           <div className="form-group">
-            <label>Select Workout</label>
+            <label>WOD</label>
             <select 
               value={selectedWod?.wodId || ''} 
               onChange={(e) => {
-                const wod = selectedEvent.workouts.find(w => w.wodId === e.target.value);
+                const wod = wods.find(w => w.wodId === e.target.value);
                 setSelectedWod(wod);
               }}
             >
-              <option value="">Choose a workout...</option>
-              {selectedEvent.workouts.map(wod => (
+              <option value="">Select WOD</option>
+              {wods.map(wod => (
                 <option key={wod.wodId} value={wod.wodId}>
-                  {wod.name} ({wod.format})
+                  {wod.name}
                 </option>
               ))}
             </select>
@@ -155,191 +222,310 @@ function Leaderboard() {
         )}
 
         <div className="form-group">
-          <label>Filter by Category</label>
+          <label>Category</label>
           <select 
             value={selectedCategory} 
             onChange={(e) => setSelectedCategory(e.target.value)}
           >
             <option value="">All Categories</option>
-            {categories.map(category => (
-              <option key={category.categoryId} value={category.categoryId}>
-                {category.name} ({category.ageRange}, {category.gender})
+            {categories.map(cat => (
+              <option key={cat.categoryId} value={cat.categoryId}>
+                {cat.name}
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      {selectedWod && (
-        <div className="leaderboard-section">
-          <div className="wod-header">
-            <h2>{selectedWod.name}</h2>
-            <span className="format-badge">{selectedWod.format}</span>
-            {selectedCategory && (
-              <div className="category-info">
-                <span>Category: {categories.find(c => c.categoryId === selectedCategory)?.name}</span>
-              </div>
-            )}
-          </div>
-
-          {leaderboard.length > 0 ? (
-            <div className="leaderboard-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Athlete</th>
-                    <th>Category</th>
-                    <th>Score</th>
-                    <th>Time</th>
-                    <th>Reps</th>
+      {loading ? (
+        <div className="loading">Loading...</div>
+      ) : leaderboard.length === 0 ? (
+        <div className="no-data">No scores available</div>
+      ) : (
+        <div className="leaderboard-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Athlete</th>
+                <th>Category</th>
+                {view === 'wod' ? (
+                  <th>Score</th>
+                ) : (
+                  <>
+                    <th>Total Points</th>
+                    <th>WOD Results</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {leaderboard.map((entry, idx) => {
+                const rank = view === 'wod' ? idx + 1 : entry.rank;
+                const category = categories.find(c => c.categoryId === entry.categoryId);
+                
+                return (
+                  <tr key={entry.athleteId} className={getRankClass(rank)}>
+                    <td className="rank-cell">
+                      <span className={`rank-badge ${getRankClass(rank)}`}>
+                        #{rank}
+                      </span>
+                    </td>
+                    <td className="athlete-cell">{getAthleteName(entry.athleteId)}</td>
+                    <td>{category?.name || 'N/A'}</td>
+                    {view === 'wod' ? (
+                      <td className="score-cell">{entry.score}</td>
+                    ) : (
+                      <>
+                        <td className="points-cell">{entry.totalPoints}</td>
+                        <td className="results-cell">
+                          {entry.wodResults.map((r, i) => (
+                            <div key={i} className="wod-result">
+                              <span>{r.wodName}</span>
+                              <span>#{r.position} ({r.points}pts)</span>
+                            </div>
+                          ))}
+                        </td>
+                      </>
+                    )}
                   </tr>
-                </thead>
-                <tbody>
-                  {leaderboard.map((score, index) => {
-                    const athlete = getAthleteInfo(score.athleteId);
-                    const rank = index + 1;
-                    return (
-                      <tr key={score.athleteId} className={`rank-${rank <= 3 ? rank : 'other'}`}>
-                        <td className="rank-cell">
-                          <span className="rank-number">{rank}</span>
-                          <span className="rank-suffix">{getRankSuffix(rank)}</span>
-                        </td>
-                        <td className="athlete-cell">
-                          {athlete ? `${athlete.firstName} ${athlete.lastName}` : 
-                           `Athlete ID: ${score.athleteId}`}
-                        </td>
-                        <td>{categories.find(c => c.categoryId === athlete?.categoryId)?.name || 'No Category'}</td>
-                        <td className="score-cell">{score.score}</td>
-                        <td>{score.time || '-'}</td>
-                        <td>{score.reps || '-'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="no-scores">
-              <p>No scores recorded for this workout yet.</p>
-            </div>
-          )}
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
       <style jsx>{`
         .leaderboard {
           padding: 20px;
+          max-width: 1400px;
+          margin: 0 auto;
         }
-        .selection-panel {
+        .leaderboard h1 {
+          margin: 0 0 25px 0;
+          color: #2c3e50;
+          font-size: 28px;
+          font-weight: 600;
+        }
+        .view-tabs {
           display: flex;
-          gap: 20px;
-          margin-bottom: 30px;
+          gap: 0;
+          margin-bottom: 25px;
+          background: white;
+          border-radius: 8px;
+          padding: 4px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+          width: fit-content;
         }
-        .form-group {
-          flex: 1;
+        .view-tabs button {
+          padding: 12px 24px;
+          border: none;
+          background: transparent;
+          color: #6c757d;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 14px;
+          transition: all 0.2s;
+          position: relative;
+        }
+        .view-tabs button:hover {
+          color: #495057;
+          background: #f8f9fa;
+        }
+        .view-tabs button.active {
+          background: #007bff;
+          color: white;
+          box-shadow: 0 2px 8px rgba(0,123,255,0.3);
+        }
+        .filters {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 20px;
+          margin-bottom: 25px;
+          background: white;
+          padding: 20px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.08);
         }
         .form-group label {
           display: block;
-          margin-bottom: 5px;
-          font-weight: bold;
+          margin-bottom: 8px;
+          font-weight: 600;
+          color: #495057;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
         .form-group select {
           width: 100%;
-          padding: 8px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-        }
-        .wod-header {
-          display: flex;
-          align-items: center;
-          gap: 15px;
-          margin-bottom: 20px;
-        }
-        .format-badge {
-          background: #007bff;
-          color: white;
-          padding: 4px 12px;
-          border-radius: 12px;
+          padding: 10px 12px;
+          border: 2px solid #e9ecef;
+          border-radius: 6px;
           font-size: 14px;
+          color: #495057;
+          background: white;
+          transition: all 0.2s;
+          cursor: pointer;
         }
-        .leaderboard-table table {
-          width: 100%;
-          border-collapse: collapse;
+        .form-group select:hover {
+          border-color: #ced4da;
+        }
+        .form-group select:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        .loading, .no-data {
+          text-align: center;
+          padding: 60px 20px;
+          background: white;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+          color: #6c757d;
+          font-size: 15px;
+        }
+        .leaderboard-table {
           background: white;
           border-radius: 8px;
           overflow: hidden;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
-        .leaderboard-table th,
-        .leaderboard-table td {
-          padding: 15px;
+        table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        th {
+          padding: 16px;
           text-align: left;
-          border-bottom: 1px solid #eee;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          font-weight: 600;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          border: none;
         }
-        .leaderboard-table th {
+        td {
+          padding: 16px;
+          border-bottom: 1px solid #f1f3f5;
+        }
+        tbody tr {
+          transition: all 0.2s;
+        }
+        tbody tr:hover {
           background: #f8f9fa;
-          font-weight: bold;
+          transform: scale(1.01);
         }
-        .rank-cell {
-          display: flex;
+        tbody tr:last-child td {
+          border-bottom: none;
+        }
+        .rank-badge {
+          display: inline-flex;
           align-items: center;
-          gap: 5px;
+          justify-content: center;
+          min-width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          font-weight: 700;
+          font-size: 16px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
-        .rank-number {
-          font-size: 24px;
-          font-weight: bold;
-        }
-        .rank-suffix {
-          font-size: 14px;
-          color: #666;
-        }
-        .rank-1 {
+        .rank-badge.gold {
           background: linear-gradient(135deg, #ffd700, #ffed4e);
+          color: #b8860b;
         }
-        .rank-2 {
+        .rank-badge.silver {
           background: linear-gradient(135deg, #c0c0c0, #e8e8e8);
+          color: #696969;
         }
-        .rank-3 {
+        .rank-badge.bronze {
           background: linear-gradient(135deg, #cd7f32, #daa520);
+          color: #8b4513;
         }
-        .rank-1 .rank-number { color: #b8860b; }
-        .rank-2 .rank-number { color: #696969; }
-        .rank-3 .rank-number { color: #8b4513; }
+        .rank-badge {
+          background: #e9ecef;
+          color: #495057;
+        }
+        tr.gold {
+          background: linear-gradient(90deg, rgba(255,215,0,0.08), transparent);
+        }
+        tr.silver {
+          background: linear-gradient(90deg, rgba(192,192,192,0.08), transparent);
+        }
+        tr.bronze {
+          background: linear-gradient(90deg, rgba(205,127,50,0.08), transparent);
+        }
         .athlete-cell {
-          font-weight: bold;
+          font-weight: 600;
+          color: #2c3e50;
+          font-size: 15px;
         }
-        .score-cell {
-          font-size: 18px;
-          font-weight: bold;
-          color: #007bff;
+        .score-cell, .points-cell {
+          font-size: 20px;
+          font-weight: 700;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
         }
-        .no-scores {
-          text-align: center;
-          padding: 40px;
-          color: #666;
+        .results-cell {
+          max-width: 400px;
+        }
+        .wod-result {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+          border-radius: 6px;
+          margin-bottom: 6px;
+          font-size: 13px;
+          border-left: 3px solid #007bff;
+        }
+        .wod-result span:first-child {
+          font-weight: 600;
+          color: #495057;
+        }
+        .wod-result span:last-child {
+          color: #6c757d;
+          font-weight: 500;
         }
         @media (max-width: 768px) {
-          .selection-panel {
-            flex-direction: column;
+          .leaderboard {
+            padding: 15px;
           }
-          .wod-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
+          .view-tabs {
+            width: 100%;
+          }
+          .view-tabs button {
+            flex: 1;
+            padding: 10px 16px;
+            font-size: 13px;
+          }
+          .filters {
+            grid-template-columns: 1fr;
+            gap: 15px;
+            padding: 15px;
           }
           .leaderboard-table {
             overflow-x: auto;
           }
-          .leaderboard-table table {
+          table {
             min-width: 600px;
           }
-          .rank-cell {
-            flex-direction: column;
-            gap: 2px;
+          th, td {
+            padding: 12px 8px;
+            font-size: 13px;
           }
-          .rank-number {
-            font-size: 18px;
+          .rank-badge {
+            min-width: 32px;
+            height: 32px;
+            font-size: 14px;
+          }
+          .score-cell, .points-cell {
+            font-size: 16px;
           }
         }
       `}</style>

@@ -3,7 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 
 function Navigation({ user, signOut }) {
   const location = useLocation();
-  const userRole = user?.attributes?.['custom:role'] || 'athlete';
+  const isSuperAdmin = user?.attributes?.['custom:isSuperAdmin'] === 'true';
+  const userRole = isSuperAdmin ? 'Super Admin' : (user?.attributes?.['custom:role'] || 'athlete');
 
   const isActive = (path) => location.pathname === path;
 

@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import EventManagement from './backoffice/EventManagement';
+import EventDetails from './backoffice/EventDetails';
+import EventEdit from './backoffice/EventEdit';
 import AthleteManagement from './backoffice/AthleteManagement';
 import CategoryManagement from './backoffice/CategoryManagement';
 import WODManagement from './backoffice/WODManagement';
 import ScoreEntry from './backoffice/ScoreEntry';
 import Leaderboard from './backoffice/Leaderboard';
-import GeneralLeaderboard from './backoffice/GeneralLeaderboard';
 import Analytics from './backoffice/Analytics';
 import AdminProfile from './backoffice/AdminProfile';
+import { getOrganizerRole, ROLE_LABELS, hasPermission, PERMISSIONS } from '../utils/organizerRoles';
 
 function BackofficeLayout({ user, signOut }) {
   const location = useLocation();
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  
+  const organizerRole = getOrganizerRole(user);
+  const roleLabel = ROLE_LABELS[organizerRole] || 'Organizer';
   
   const isActive = (path) => location.pathname === path;
   
@@ -55,62 +60,74 @@ function BackofficeLayout({ user, signOut }) {
             <div className="admin-text">
               <h2>Scoring Games</h2>
               <div className="user-info">
-                <span>{user?.attributes?.given_name} (Organizer)</span>
+                <span>{user?.attributes?.given_name}</span>
+                <span className="role-badge">{roleLabel}</span>
                 <button onClick={(e) => { e.stopPropagation(); signOut(); }} className="sign-out">Sign Out</button>
               </div>
             </div>
           </div>
         </div>
         <div className="nav-links">
-          <Link to="/backoffice/events" className={isActive('/backoffice/events') ? 'active' : ''}>
-            <span className="nav-icon">📅</span>
-            <span className="nav-text">Events</span>
-          </Link>
-          <Link to="/backoffice/athletes" className={isActive('/backoffice/athletes') ? 'active' : ''}>
-            <span className="nav-icon">👥</span>
-            <span className="nav-text">Athletes</span>
-          </Link>
-          <Link to="/backoffice/categories" className={isActive('/backoffice/categories') ? 'active' : ''}>
-            <span className="nav-icon">🏷️</span>
-            <span className="nav-text">Categories</span>
-          </Link>
-          <Link to="/backoffice/wods" className={isActive('/backoffice/wods') ? 'active' : ''}>
-            <span className="nav-icon">💪</span>
-            <span className="nav-text">WODs</span>
-          </Link>
-          <Link to="/backoffice/scores" className={isActive('/backoffice/scores') ? 'active' : ''}>
-            <span className="nav-icon">📝</span>
-            <span className="nav-text">Score Entry</span>
-          </Link>
-          <Link to="/backoffice/leaderboard" className={isActive('/backoffice/leaderboard') ? 'active' : ''}>
-            <span className="nav-icon">🏆</span>
-            <span className="nav-text">WOD Leaderboard</span>
-          </Link>
-          <Link to="/backoffice/general-leaderboard" className={isActive('/backoffice/general-leaderboard') ? 'active' : ''}>
-            <span className="nav-icon">🥇</span>
-            <span className="nav-text">General Leaderboard</span>
-          </Link>
-          <Link to="/backoffice/analytics" className={isActive('/backoffice/analytics') ? 'active' : ''}>
-            <span className="nav-icon">📊</span>
-            <span className="nav-text">Analytics</span>
-          </Link>
+          {hasPermission(organizerRole, PERMISSIONS.MANAGE_EVENTS) && (
+            <Link to="/backoffice/events" className={isActive('/backoffice/events') ? 'active' : ''}>
+              <span className="nav-icon">📅</span>
+              <span className="nav-text">Events</span>
+            </Link>
+          )}
+          {hasPermission(organizerRole, PERMISSIONS.MANAGE_ATHLETES) && (
+            <Link to="/backoffice/athletes" className={isActive('/backoffice/athletes') ? 'active' : ''}>
+              <span className="nav-icon">👥</span>
+              <span className="nav-text">Athletes</span>
+            </Link>
+          )}
+          {hasPermission(organizerRole, PERMISSIONS.MANAGE_CATEGORIES) && (
+            <Link to="/backoffice/categories" className={isActive('/backoffice/categories') ? 'active' : ''}>
+              <span className="nav-icon">🏷️</span>
+              <span className="nav-text">Categories</span>
+            </Link>
+          )}
+          {hasPermission(organizerRole, PERMISSIONS.MANAGE_WODS) && (
+            <Link to="/backoffice/wods" className={isActive('/backoffice/wods') ? 'active' : ''}>
+              <span className="nav-icon">💪</span>
+              <span className="nav-text">WODs</span>
+            </Link>
+          )}
+          {hasPermission(organizerRole, PERMISSIONS.ENTER_SCORES) && (
+            <Link to="/backoffice/scores" className={isActive('/backoffice/scores') ? 'active' : ''}>
+              <span className="nav-icon">📝</span>
+              <span className="nav-text">Score Entry</span>
+            </Link>
+          )}
+          {hasPermission(organizerRole, PERMISSIONS.VIEW_LEADERBOARDS) && (
+            <Link to="/backoffice/leaderboard" className={isActive('/backoffice/leaderboard') ? 'active' : ''}>
+              <span className="nav-icon">🏆</span>
+              <span className="nav-text">Leaderboard</span>
+            </Link>
+          )}
+          {hasPermission(organizerRole, PERMISSIONS.MANAGE_OWN_COMPETITIONS) && (
+            <Link to="/backoffice/analytics" className={isActive('/backoffice/analytics') ? 'active' : ''}>
+              <span className="nav-icon">📊</span>
+              <span className="nav-text">Analytics</span>
+            </Link>
+          )}
         </div>
         </nav>
       </div>
 
       <main className={`backoffice-content ${sidebarVisible ? 'sidebar-open' : ''}`}>
         <Routes>
+          <Route path="/backoffice/events/:eventId/edit" element={<EventEdit />} />
+          <Route path="/backoffice/events/:eventId" element={<EventDetails />} />
           <Route path="/backoffice/events" element={<EventManagement />} />
           <Route path="/backoffice/athletes" element={<AthleteManagement />} />
           <Route path="/backoffice/categories" element={<CategoryManagement />} />
           <Route path="/backoffice/wods" element={<WODManagement />} />
           <Route path="/backoffice/scores" element={<ScoreEntry />} />
           <Route path="/backoffice/leaderboard" element={<Leaderboard />} />
-          <Route path="/backoffice/general-leaderboard" element={<GeneralLeaderboard />} />
           <Route path="/backoffice/analytics" element={<Analytics />} />
           <Route path="/admin-profile" element={<AdminProfile user={user} signOut={signOut} />} />
           <Route path="/backoffice" element={<EventManagement />} />
-          <Route path="/" element={<EventManagement />} />
+          <Route path="*" element={<EventManagement />} />
         </Routes>
       </main>
 
@@ -217,6 +234,16 @@ function BackofficeLayout({ user, signOut }) {
         .user-info span {
           font-size: 12px;
           color: #bdc3c7;
+        }
+        .role-badge {
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          color: white;
+          padding: 3px 8px;
+          border-radius: 12px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
         .sign-out {
           background: #e74c3c;

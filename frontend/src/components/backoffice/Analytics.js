@@ -1,29 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useOrganization } from '../../contexts/OrganizationContext';
 
 function Analytics() {
+  const { selectedOrganization } = useOrganization();
   const [events, setEvents] = useState([]);
   const [athletes, setAthletes] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [wods, setWods] = useState([]);
   const [allScores, setAllScores] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAnalyticsData();
-  }, []);
+    if (selectedOrganization) {
+      fetchAnalyticsData();
+    }
+  }, [selectedOrganization]);
 
   const fetchAnalyticsData = async () => {
+    if (!selectedOrganization) return;
+    
     try {
       setLoading(true);
-      const [eventsData, athletesData, categoriesData] = await Promise.all([
-        API.get('CalisthenicsAPI', '/events'),
+      const [eventsData, athletesData, categoriesData, wodsData] = await Promise.all([
+        API.get('CalisthenicsAPI', `/competitions?organizationId=${selectedOrganization.organizationId}`),
         API.get('CalisthenicsAPI', '/athletes'),
-        API.get('CalisthenicsAPI', '/categories')
+        API.get('CalisthenicsAPI', '/categories'),
+        API.get('CalisthenicsAPI', '/wods')
       ]);
       
       setEvents(eventsData || []);
       setAthletes(athletesData || []);
       setCategories(categoriesData || []);
+      setWods(wodsData || []);
       
       // Fetch scores for all events
       let scoresData = [];
@@ -44,7 +53,7 @@ function Analytics() {
   };
 
   const getOverviewStats = () => {
-    const totalWods = events.reduce((sum, event) => sum + (event.workouts?.length || 0), 0);
+    const totalWods = wods.length;
     const totalScores = allScores.length;
     const activeEvents = events.filter(event => event.status === 'active').length;
     const completedEvents = events.filter(event => event.status === 'completed').length;
@@ -71,10 +80,9 @@ function Analytics() {
 
   const getWodFormatStats = () => {
     const formats = {};
-    events.forEach(event => {
-      event.workouts?.forEach(wod => {
-        formats[wod.format] = (formats[wod.format] || 0) + 1;
-      });
+    wods.forEach(wod => {
+      const format = wod.scoringType || 'Unknown';
+      formats[format] = (formats[format] || 0) + 1;
     });
     return formats;
   };
@@ -82,6 +90,8 @@ function Analytics() {
   const getTopPerformers = () => {
     const athleteScores = {};
     allScores.forEach(score => {
+      if (!score || !score.athleteId) return;
+      
       // Extract actual athlete ID from composite ID (athleteId#workoutId)
       const actualAthleteId = score.originalAthleteId || 
         (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
@@ -108,7 +118,7 @@ function Analytics() {
 
   const getEventParticipation = () => {
     return events.map(event => {
-      const eventScores = allScores.filter(score => score.eventId === event.eventId);
+      const eventScores = allScores.filter(score => score && score.eventId === event.eventId && score.athleteId);
       // Extract actual athlete IDs and count unique participants
       const uniqueAthletes = new Set(
         eventScores.map(score => 

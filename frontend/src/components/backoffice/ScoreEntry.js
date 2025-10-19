@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useOrganization } from '../../contexts/OrganizationContext';
+import './Backoffice.css';
 import './ScoreEntry.css';
 
 function ScoreEntry() {
+  const { selectedOrganization } = useOrganization();
   const [events, setEvents] = useState([]);
+  const [wods, setWods] = useState([]);
   const [athletes, setAthletes] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -19,10 +23,12 @@ function ScoreEntry() {
   const [athleteSearch, setAthleteSearch] = useState('');
 
   useEffect(() => {
-    fetchEvents();
+    if (selectedOrganization) {
+      fetchEvents();
+    }
     fetchAthletes();
     fetchCategories();
-  }, []);
+  }, [selectedOrganization]);
 
   useEffect(() => {
     if (selectedEvent && selectedWod && selectedCategory) {
@@ -31,8 +37,10 @@ function ScoreEntry() {
   }, [selectedEvent, selectedWod, selectedCategory]);
 
   const fetchEvents = async () => {
+    if (!selectedOrganization) return;
+    
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
+      const response = await API.get('CalisthenicsAPI', `/competitions?organizationId=${selectedOrganization.organizationId}`);
       setEvents(response || []);
     } catch (error) {
       console.error('Error fetching events:', error);
@@ -57,10 +65,20 @@ function ScoreEntry() {
     }
   };
 
+  const fetchWods = async (eventId) => {
+    try {
+      const response = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`);
+      setWods(response || []);
+    } catch (error) {
+      console.error('Error fetching WODs:', error);
+      setWods([]);
+    }
+  };
+
   const fetchScores = async () => {
     try {
       const response = await API.get('CalisthenicsAPI', `/scores?eventId=${selectedEvent.eventId}`);
-      const wodScores = response.filter(score => score.workoutId === selectedWod.wodId);
+      const wodScores = response.filter(score => score.wodId === selectedWod.wodId);
       setScores(wodScores);
     } catch (error) {
       console.error('Error fetching scores:', error);
@@ -72,7 +90,8 @@ function ScoreEntry() {
     try {
       const scoreData = {
         eventId: selectedEvent.eventId,
-        workoutId: selectedWod.wodId,
+        dayId: selectedWod.dayId,
+        wodId: selectedWod.wodId,
         athleteId: scoreForm.athleteId,
         score: parseFloat(scoreForm.score) || 0,
         time: scoreForm.time,
@@ -84,12 +103,16 @@ function ScoreEntry() {
       const existingScore = getAthleteScoreForWod(scoreForm.athleteId);
       
       if (existingScore) {
-        const compositeAthleteId = `${scoreForm.athleteId}#${selectedWod.wodId}`;
-        const result = await API.put('CalisthenicsAPI', `/scores/${selectedEvent.eventId}/${compositeAthleteId}`, { body: scoreData });
-        console.log('Update result:', result);
+        // Update existing score
+        await API.put('CalisthenicsAPI', `/scores/${existingScore.scoreId}`, { 
+          body: { ...scoreData, eventId: selectedEvent.eventId }
+        });
         alert('Score updated successfully!');
       } else {
-        await API.post('CalisthenicsAPI', '/scores', { body: scoreData });
+        // Create new score
+        await API.post('CalisthenicsAPI', `/scores`, { 
+          body: scoreData 
+        });
         alert('Score submitted successfully!');
       }
       
@@ -130,7 +153,7 @@ function ScoreEntry() {
   const getAthleteScoreForWod = (athleteId) => {
     return scores.find(score => {
       const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
-      return actualAthleteId === athleteId && score.workoutId === selectedWod?.wodId;
+      return actualAthleteId === athleteId && score.wodId === selectedWod?.wodId;
     });
   };
 
@@ -143,11 +166,15 @@ function ScoreEntry() {
           <label>Select Event</label>
           <select 
             value={selectedEvent?.eventId || ''} 
-            onChange={(e) => {
+            onChange={async (e) => {
               const event = events.find(ev => ev.eventId === e.target.value);
               setSelectedEvent(event);
               setSelectedWod(null);
               setSelectedCategory('');
+              setWods([]);
+              if (event) {
+                await fetchWods(event.eventId);
+              }
             }}
           >
             <option value="">Choose an event...</option>
@@ -159,21 +186,21 @@ function ScoreEntry() {
           </select>
         </div>
 
-        {selectedEvent && selectedEvent.workouts?.length > 0 && (
+        {selectedEvent && wods.length > 0 && (
           <div className="form-group">
             <label>Select Workout</label>
             <select 
               value={selectedWod?.wodId || ''} 
               onChange={(e) => {
-                const wod = selectedEvent.workouts.find(w => w.wodId === e.target.value);
+                const wod = wods.find(w => w.wodId === e.target.value);
                 setSelectedWod(wod);
                 setSelectedCategory('');
               }}
             >
               <option value="">Choose a workout...</option>
-              {selectedEvent.workouts.map(wod => (
+              {wods.map(wod => (
                 <option key={wod.wodId} value={wod.wodId}>
-                  {wod.name} ({wod.format})
+                  {wod.name} ({wod.scoringType})
                 </option>
               ))}
             </select>

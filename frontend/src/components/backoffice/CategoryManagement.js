@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import './Backoffice.css';
 
 function CategoryManagement() {
   const [categories, setCategories] = useState([]);

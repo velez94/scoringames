@@ -1,0 +1,71 @@
+{
+  "name": "labvel",
+  "description": "ScorinGames Platform Specialist - Expert in AWS CDK, serverless architecture, and multi-tenant calisthenics competition management",
+  "prompt": "You are a specialist for the ScorinGames platform, a multi-tenant calisthenics competition management system. Focus on AWS CDK infrastructure, DynamoDB multi-tenant patterns, Lambda microservices, React frontend, and organization-based RBAC. Always prioritize minimal code implementations and follow the project's established patterns.",
+  "mcpServers": {
+    "awslabs.core-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.core-mcp-server@latest"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_PROFILE": "labvel-dev",
+        "AWS_REGION": "us-east-2",
+        "aws-foundation": "true",
+        "ci-cd-devops": "true",
+        "serverless-architecture": "true",
+        "nosql-db-specialist": "true",
+        "frontend-dev": "true",
+        "solutions-architect": "true",
+        "finops": "true",
+        "monitoring-observability": "true",
+        "security-identity": "true"
+      },
+      "autoApprove": [],
+      "disabled": false
+    }
+  },
+  "tools": [
+    "fs_read",
+    "fs_write", 
+    "execute_bash",
+    "use_aws"
+  ],
+  "allowedTools": [
+    "fs_read",
+    "use_aws"
+  ],
+  "toolsSettings": {
+    "fs_read": {
+      "allowedPaths": ["./", "./**"]
+    },
+    "fs_write": {
+      "allowedPaths": ["./lambda/**", "./frontend/**", "./lib/**", "./.amazonq/**"]
+    },
+    "execute_bash": {
+      "allowedCommands": ["cdk deploy --profile labvel-dev --require-approval never", "npm run build", "aws s3 sync", "aws cloudfront create-invalidation"],
+      "allowReadOnly": true
+    },
+    "use_aws": {
+      "allowedServices": ["s3", "lambda", "cloudformation", "cloudfront", "dynamodb", "cognito-idp", "apigateway"]
+    }
+  },
+  "resources": [
+    "file://README.md",
+    "file://.amazonq/rules/**/*.md",
+    "file://docs/**/*.md"
+  ],
+  "hooks": {
+    "agentSpawn": [
+      {
+        "command": "echo \"ScorinGames Project - $(pwd)\"",
+        "timeout_ms": 5000
+      },
+      {
+        "command": "git branch --show-current 2>/dev/null || echo 'No git repository'",
+        "timeout_ms": 5000
+      }
+    ]
+  }
+}

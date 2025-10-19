@@ -8,6 +8,7 @@ function AthleteProfile({ user, signOut }) {
   const [activeTab, setActiveTab] = useState('profile');
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [wods, setWods] = useState([]);
   const [scores, setScores] = useState([]);
   const [allScores, setAllScores] = useState([]);
   const [editMode, setEditMode] = useState(false);
@@ -72,7 +73,7 @@ function AthleteProfile({ user, signOut }) {
 
   const fetchEvents = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
+      const response = await API.get('CalisthenicsAPI', '/public/events');
       setEvents(response || []);
     } catch (error) {
       console.error('Error fetching events:', error);
@@ -92,12 +93,13 @@ function AthleteProfile({ user, signOut }) {
 
   const fetchRegistrations = async () => {
     try {
-      // For now, use localStorage to track registrations
-      // In production, this would be an API call
-      const storedRegistrations = localStorage.getItem(`registrations_${user?.attributes?.email}`);
-      setRegistrations(storedRegistrations ? JSON.parse(storedRegistrations) : []);
+      // Fetch from athlete-competitions table
+      const response = await API.get('CalisthenicsAPI', `/athletes/${user?.attributes?.sub}/competitions`);
+      console.log('Fetched registrations:', response);
+      setRegistrations(response || []);
     } catch (error) {
       console.error('Error fetching registrations:', error);
+      setRegistrations([]);
     }
   };
 
@@ -122,45 +124,51 @@ function AthleteProfile({ user, signOut }) {
 
   const handleRegisterForEvent = async (eventId, categoryId) => {
     try {
-      const registration = {
-        athleteId: profile.athleteId,
-        eventId,
-        categoryId,
-        registrationDate: new Date().toISOString()
-      };
+      const athleteId = profile.athleteId || user?.attributes?.sub;
       
-      // Store registration locally (in production, this would be an API call)
-      const updatedRegistrations = [...registrations, registration];
-      setRegistrations(updatedRegistrations);
-      localStorage.setItem(`registrations_${user?.attributes?.email}`, JSON.stringify(updatedRegistrations));
+      await API.post('CalisthenicsAPI', `/athletes/${athleteId}/competitions`, {
+        body: {
+          eventId,
+          categoryId,
+          registrationDate: new Date().toISOString()
+        }
+      });
       
-      console.log('Registering for event:', registration);
+      // Refresh registrations
+      await fetchRegistrations();
       alert('Registration successful!');
     } catch (error) {
       console.error('Error registering for event:', error);
+      alert('Error registering for event. Please try again.');
     }
   };
 
   const isRegisteredForEvent = (eventId) => {
-    return registrations.some(reg => reg.eventId === eventId);
+    return registrations.some(reg => reg.eventId === eventId || reg.eventId === eventId);
   };
 
   const fetchScores = async () => {
     try {
       // Get all scores from all events
       let allScoresResponse = [];
+      let allWodsResponse = [];
       
-      // Fetch scores for each event
+      // Fetch scores and WODs for each event
       for (const event of events) {
         try {
-          const eventScores = await API.get('CalisthenicsAPI', `/scores?eventId=${event.eventId}`);
+          const [eventScores, eventWods] = await Promise.all([
+            API.get('CalisthenicsAPI', `/scores?eventId=${event.eventId}`),
+            API.get('CalisthenicsAPI', `/wods?eventId=${event.eventId}`)
+          ]);
           allScoresResponse = [...allScoresResponse, ...(eventScores || [])];
+          allWodsResponse = [...allWodsResponse, ...(eventWods || [])];
         } catch (error) {
-          console.error(`Error fetching scores for event ${event.eventId}:`, error);
+          console.error(`Error fetching data for event ${event.eventId}:`, error);
         }
       }
       
       setAllScores(allScoresResponse);
+      setWods(allWodsResponse);
       
       // Find athlete's scores using multiple possible IDs
       const possibleAthleteIds = [
@@ -170,6 +178,7 @@ function AthleteProfile({ user, signOut }) {
       ].filter(Boolean);
       
       const athleteScores = allScoresResponse.filter(score => {
+        if (!score || !score.athleteId) return false;
         const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
         return possibleAthleteIds.includes(actualAthleteId);
       });
@@ -187,21 +196,22 @@ function AthleteProfile({ user, signOut }) {
     
     const bests = {};
     scores.forEach(score => {
-      const key = `${score.eventId}-${score.workoutId}`;
-      if (!bests[key] || score.score > bests[key].score) {
+      if (!score || !score.eventId || !score.wodId) return;
+      const key = `${score.eventId}-${score.wodId}`;
+      if (!bests[key] || (score.score && score.score > (bests[key]?.score || 0))) {
         bests[key] = score;
       }
     });
     return bests;
   };
 
-  const getAthleteRanking = (eventId, workoutId) => {
+  const getAthleteRanking = (eventId, wodId) => {
     const wodScores = allScores.filter(score => 
-      score.eventId === eventId && score.workoutId === workoutId
+      score && score.eventId === eventId && score.wodId === wodId
     );
     
     // Sort scores (assuming higher is better for most formats)
-    const sortedScores = wodScores.sort((a, b) => b.score - a.score);
+    const sortedScores = wodScores.sort((a, b) => (b?.score || 0) - (a?.score || 0));
     
     const possibleAthleteIds = [
       profile?.athleteId,
@@ -210,6 +220,7 @@ function AthleteProfile({ user, signOut }) {
     ].filter(Boolean);
     
     const athleteRank = sortedScores.findIndex(score => {
+      if (!score || !score.athleteId) return false;
       const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
       return possibleAthleteIds.includes(actualAthleteId);
     }) + 1;
@@ -225,10 +236,9 @@ function AthleteProfile({ user, signOut }) {
     return event?.name || `Event ${eventId}`;
   };
 
-  const getWorkoutName = (eventId, workoutId) => {
-    const event = events.find(e => e.eventId === eventId);
-    const workout = event?.workouts?.find(w => w.wodId === workoutId);
-    return workout?.name || `Workout ${workoutId}`;
+  const getWorkoutName = (eventId, wodId) => {
+    const workout = wods.find(w => w.eventId === eventId && w.wodId === wodId);
+    return workout?.name || `Workout ${wodId}`;
   };
 
   if (loading) {
@@ -268,6 +278,12 @@ function AthleteProfile({ user, signOut }) {
           Profile
         </button>
         <button 
+          className={activeTab === 'competitions' ? 'active' : ''} 
+          onClick={() => setActiveTab('competitions')}
+        >
+          My Competitions
+        </button>
+        <button 
           className={activeTab === 'scores' ? 'active' : ''} 
           onClick={() => setActiveTab('scores')}
         >
@@ -277,7 +293,7 @@ function AthleteProfile({ user, signOut }) {
           className={activeTab === 'events' ? 'active' : ''} 
           onClick={() => setActiveTab('events')}
         >
-          Events
+          All Events
         </button>
         <button 
           className={activeTab === 'leaderboard' ? 'active' : ''} 
@@ -318,8 +334,45 @@ function AthleteProfile({ user, signOut }) {
                     onChange={(e) => setEditForm({...editForm, lastName: e.target.value})}
                   />
                 </div>
-                <div className="form-note">
-                  <p><em>Note: To change your category, please contact an administrator.</em></p>
+                <div className="form-group">
+                  <label>Email</label>
+                  <input 
+                    type="email"
+                    value={editForm.email || ''} 
+                    onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Age</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={editForm.age || ''} 
+                    onChange={(e) => setEditForm({...editForm, age: parseInt(e.target.value) || ''})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Phone Number</label>
+                  <input 
+                    type="tel"
+                    value={editForm.phone || ''} 
+                    onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Category</label>
+                  <select 
+                    value={editForm.categoryId || ''} 
+                    onChange={(e) => setEditForm({...editForm, categoryId: e.target.value})}
+                  >
+                    <option value="">Select Category</option>
+                    {categories.map(category => (
+                      <option key={category.categoryId} value={category.categoryId}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             ) : (
@@ -344,9 +397,10 @@ function AthleteProfile({ user, signOut }) {
               {Object.keys(personalBests).length > 0 ? (
                 <div className="bests-grid">
                   {Object.values(personalBests).map((best, index) => {
+                    if (!best || !best.eventId || !best.wodId) return null;
                     const eventName = getEventName(best.eventId);
-                    const workoutName = getWorkoutName(best.eventId, best.workoutId);
-                    const ranking = getAthleteRanking(best.eventId, best.workoutId);
+                    const workoutName = getWorkoutName(best.eventId, best.wodId);
+                    const ranking = getAthleteRanking(best.eventId, best.wodId);
                     
                     return (
                       <div key={index} className="best-card">
@@ -381,6 +435,74 @@ function AthleteProfile({ user, signOut }) {
           </div>
         )}
 
+        {activeTab === 'competitions' && (
+          <div className="competitions-tab">
+            <h3>🏆 My Registered Competitions</h3>
+            {registrations.length > 0 ? (
+              <div className="competitions-grid">
+                {registrations.map((reg) => {
+                  const event = events.find(e => e.eventId === reg.eventId);
+                  console.log('Registration:', reg, 'Found event:', event);
+                  if (!event) return null;
+                  
+                  return (
+                    <div key={reg.eventId || reg.eventId} className="competition-card registered">
+                      {event.imageUrl && (
+                        <div className="event-banner">
+                          <img src={event.imageUrl} alt={event.name} />
+                        </div>
+                      )}
+                      
+                      <div className="event-content">
+                        <div className="event-header">
+                          <h4>{event.name}</h4>
+                          <div className={`status-badge ${event.status}`}>
+                            {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                          </div>
+                        </div>
+                        
+                        <div className="event-details">
+                          <p className="event-description">{event.description}</p>
+                          
+                          <div className="event-meta">
+                            <div className="meta-item">
+                              <span className="meta-icon">📅</span>
+                              <span>{new Date(event.date).toLocaleDateString()}</span>
+                            </div>
+                            
+                            <div className="meta-item">
+                              <span className="meta-icon">✅</span>
+                              <span>Registered on {new Date(reg.registeredAt || reg.registrationDate).toLocaleDateString()}</span>
+                            </div>
+                            
+                            {reg.categoryId && (
+                              <div className="meta-item">
+                                <span className="meta-icon">🏆</span>
+                                <span>Category: {categories.find(c => c.categoryId === reg.categoryId)?.name}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="registration-badge">
+                          <span className="status-icon">✅</span>
+                          <span>You are registered</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="no-competitions">
+                <div className="no-competitions-icon">🎯</div>
+                <p>You haven't registered for any competitions yet.</p>
+                <p className="no-competitions-subtitle">Check the "All Events" tab to find competitions to join!</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'scores' && (
           <div className="scores-tab">
             <h3>My Competition Scores</h3>
@@ -388,9 +510,9 @@ function AthleteProfile({ user, signOut }) {
             {scores.length > 0 ? (
               <div className="scores-list">
                 {scores.map((score, index) => {
-                  const ranking = getAthleteRanking(score.eventId, score.workoutId);
+                  const ranking = getAthleteRanking(score.eventId, score.wodId);
                   const eventName = getEventName(score.eventId);
-                  const workoutName = getWorkoutName(score.eventId, score.workoutId);
+                  const workoutName = getWorkoutName(score.eventId, score.wodId);
                   
                   return (
                     <div key={index} className="score-item">
@@ -557,6 +679,14 @@ function AthleteProfile({ user, signOut }) {
           border-radius: 10px;
           margin-bottom: 20px;
         }
+        .profile-header h1 {
+          color: white;
+          margin: 0 0 5px 0;
+        }
+        .profile-header p {
+          color: rgba(255,255,255,0.9);
+          margin: 3px 0;
+        }
         .header-content {
           display: flex;
           justify-content: space-between;
@@ -577,6 +707,7 @@ function AthleteProfile({ user, signOut }) {
           justify-content: center;
           font-size: 24px;
           font-weight: bold;
+          color: white;
         }
         .sign-out {
           background: rgba(255,255,255,0.2);
@@ -1015,6 +1146,65 @@ function AthleteProfile({ user, signOut }) {
           .no-bests-icon {
             font-size: 36px;
           }
+        }
+        .events-tab h3 {
+          margin-bottom: 25px;
+          color: #333;
+          font-size: 24px;
+        }
+        .competitions-tab h3 {
+          margin-bottom: 25px;
+          color: #333;
+          font-size: 24px;
+        }
+        .competitions-grid {
+          display: grid;
+          gap: 20px;
+        }
+        .competition-card {
+          background: white;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          border: 1px solid #e9ecef;
+          transition: transform 0.2s, box-shadow 0.2s;
+          border-left: 4px solid #28a745;
+          background: linear-gradient(135deg, #f8fff9, #ffffff);
+        }
+        .competition-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 15px rgba(0,0,0,0.15);
+        }
+        .registration-badge {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 12px 20px;
+          background: #e8f5e8;
+          color: #2e7d32;
+          font-weight: 600;
+          font-size: 14px;
+          border-radius: 8px;
+        }
+        .no-competitions {
+          text-align: center;
+          padding: 60px 20px;
+          background: white;
+          border-radius: 12px;
+          border: 2px dashed #dee2e6;
+        }
+        .no-competitions-icon {
+          font-size: 48px;
+          margin-bottom: 20px;
+        }
+        .no-competitions p {
+          margin: 10px 0;
+          color: #666;
+        }
+        .no-competitions-subtitle {
+          font-size: 14px;
+          color: #999;
         }
         .events-tab h3 {
           margin-bottom: 25px;

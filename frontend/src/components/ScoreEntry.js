@@ -3,35 +3,72 @@ import { API } from 'aws-amplify';
 
 function ScoreEntry({ user }) {
   const [events, setEvents] = useState([]);
-  const [selectedEvent, setSelectedEvent] = useState('');
+  const [filteredEvents, setFilteredEvents] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [wods, setWods] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [scoreData, setScoreData] = useState({
     athleteId: '',
-    workoutId: 'workout-1',
-    score: '',
-    time: '',
-    reps: '',
-    division: 'Male RX'
+    wodId: '',
+    categoryId: '',
+    dayId: '',
+    score: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
 
-  const divisions = ['Male RX', 'Female RX', 'Male Scaled', 'Female Scaled'];
   const userRole = user?.attributes?.['custom:role'] || 'athlete';
+  const organizerId = user?.attributes?.sub;
 
   useEffect(() => {
     fetchEvents();
+    fetchCategories();
   }, []);
+
+  useEffect(() => {
+    const filtered = events.filter(event =>
+      event.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      event.location?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredEvents(filtered);
+  }, [searchTerm, events]);
+
+  useEffect(() => {
+    if (selectedEvent) {
+      fetchWods(selectedEvent.eventId);
+    }
+  }, [selectedEvent]);
 
   const fetchEvents = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
-      const activeEvents = response.filter(event => event.status === 'active' || event.status === 'upcoming');
-      setEvents(activeEvents);
-      if (activeEvents.length > 0) {
-        setSelectedEvent(activeEvents[0].eventId);
-      }
+      const response = await API.get('CalisthenicsAPI', '/competitions');
+      const userEvents = response.filter(event => 
+        event.organizerId === organizerId && 
+        (event.status === 'active' || event.status === 'upcoming')
+      );
+      setEvents(userEvents);
+      setFilteredEvents(userEvents);
     } catch (error) {
       console.error('Error fetching events:', error);
+    }
+  };
+
+  const fetchWods = async (eventId) => {
+    try {
+      const response = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`);
+      setWods(response);
+    } catch (error) {
+      console.error('Error fetching WODs:', error);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/categories');
+      setCategories(response);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
     }
   };
 
@@ -41,24 +78,15 @@ function ScoreEntry({ user }) {
     setMessage('');
 
     try {
-      const submission = {
-        ...scoreData,
-        eventId: selectedEvent,
-        score: parseFloat(scoreData.score) || 0
-      };
-
-      await API.post('CalisthenicsAPI', '/scores', { body: submission });
-      setMessage('Score submitted successfully!');
-      
-      // Reset form
-      setScoreData({
-        athleteId: '',
-        workoutId: 'workout-1',
-        score: '',
-        time: '',
-        reps: '',
-        division: 'Male RX'
+      await API.post('CalisthenicsAPI', `/scores`, {
+        body: {
+          ...scoreData,
+          score: parseFloat(scoreData.score)
+        }
       });
+      
+      setMessage('Score submitted successfully!');
+      setScoreData({ athleteId: '', wodId: '', categoryId: '', dayId: '', score: '' });
     } catch (error) {
       console.error('Error submitting score:', error);
       setMessage('Error submitting score. Please try again.');
@@ -83,125 +111,115 @@ function ScoreEntry({ user }) {
     <div className="score-entry">
       <h1>Score Entry</h1>
       
-      <div className="score-form-container">
-        <form onSubmit={submitScore} className="score-form">
-          <div className="form-group">
-            <label>Event</label>
-            <select 
-              value={selectedEvent} 
-              onChange={(e) => setSelectedEvent(e.target.value)}
-              required
-            >
-              <option value="">Select Event</option>
-              {events.map(event => (
-                <option key={event.eventId} value={event.eventId}>
-                  {event.name}
-                </option>
+      {!selectedEvent ? (
+        <div className="event-selection">
+          <div className="search-box">
+            <input
+              type="text"
+              placeholder="Search events by name or location..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
+          {filteredEvents.length === 0 ? (
+            <div className="no-events">
+              <p>No events found. You can only enter scores for events you organize.</p>
+            </div>
+          ) : (
+            <div className="events-grid">
+              {filteredEvents.map(event => (
+                <div key={event.eventId} className="event-card" onClick={() => setSelectedEvent(event)}>
+                  <h3>{event.name}</h3>
+                  <p className="event-date">{new Date(event.startDate).toLocaleDateString()}</p>
+                  <p className="event-location">{event.location}</p>
+                  <span className={`status-badge ${event.status}`}>{event.status}</span>
+                </div>
               ))}
-            </select>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Athlete ID</label>
-              <input
-                type="text"
-                value={scoreData.athleteId}
-                onChange={(e) => setScoreData({...scoreData, athleteId: e.target.value})}
-                placeholder="Enter athlete ID"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Division</label>
-              <select
-                value={scoreData.division}
-                onChange={(e) => setScoreData({...scoreData, division: e.target.value})}
-                required
-              >
-                {divisions.map(division => (
-                  <option key={division} value={division}>
-                    {division}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Workout</label>
-            <select
-              value={scoreData.workoutId}
-              onChange={(e) => setScoreData({...scoreData, workoutId: e.target.value})}
-              required
-            >
-              <option value="workout-1">Workout 1</option>
-              <option value="workout-2">Workout 2</option>
-              <option value="workout-3">Workout 3</option>
-            </select>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Score</label>
-              <input
-                type="number"
-                step="0.01"
-                value={scoreData.score}
-                onChange={(e) => setScoreData({...scoreData, score: e.target.value})}
-                placeholder="Enter score"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Time (optional)</label>
-              <input
-                type="text"
-                value={scoreData.time}
-                onChange={(e) => setScoreData({...scoreData, time: e.target.value})}
-                placeholder="MM:SS"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Reps (optional)</label>
-              <input
-                type="number"
-                value={scoreData.reps}
-                onChange={(e) => setScoreData({...scoreData, reps: e.target.value})}
-                placeholder="Total reps"
-              />
-            </div>
-          </div>
-
-          <button 
-            type="submit" 
-            className="btn-primary"
-            disabled={submitting || !selectedEvent}
-          >
-            {submitting ? 'Submitting...' : 'Submit Score'}
-          </button>
-
-          {message && (
-            <div className={`message ${message.includes('Error') ? 'error' : 'success'}`}>
-              {message}
             </div>
           )}
-        </form>
-
-        <div className="quick-tips">
-          <h3>Quick Tips</h3>
-          <ul>
-            <li>Verify athlete ID before submitting</li>
-            <li>Double-check division assignment</li>
-            <li>For AMRAP: Enter total reps as score</li>
-            <li>For Time: Enter time in MM:SS format</li>
-            <li>For weighted workouts: Include weight in score</li>
-          </ul>
         </div>
-      </div>
+      ) : (
+        <div className="score-form-container">
+          <div className="selected-event-header">
+            <div>
+              <h2>{selectedEvent.name}</h2>
+              <p>{selectedEvent.location} • {new Date(selectedEvent.startDate).toLocaleDateString()}</p>
+            </div>
+            <button className="btn-secondary" onClick={() => setSelectedEvent(null)}>Change Event</button>
+          </div>
+
+          <form onSubmit={submitScore} className="score-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label>Athlete ID *</label>
+                <input
+                  type="text"
+                  value={scoreData.athleteId}
+                  onChange={(e) => setScoreData({...scoreData, athleteId: e.target.value})}
+                  placeholder="athlete-1"
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Category *</label>
+                <select
+                  value={scoreData.categoryId}
+                  onChange={(e) => setScoreData({...scoreData, categoryId: e.target.value})}
+                  required
+                >
+                  <option value="">Select Category</option>
+                  {categories.map(cat => (
+                    <option key={cat.categoryId} value={cat.categoryId}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>WOD *</label>
+                <select
+                  value={scoreData.wodId}
+                  onChange={(e) => {
+                    const wod = wods.find(w => w.wodId === e.target.value);
+                    setScoreData({...scoreData, wodId: e.target.value, dayId: wod?.dayId || ''});
+                  }}
+                  required
+                >
+                  <option value="">Select WOD</option>
+                  {wods.map(wod => (
+                    <option key={wod.wodId} value={wod.wodId}>{wod.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Score *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={scoreData.score}
+                  onChange={(e) => setScoreData({...scoreData, score: e.target.value})}
+                  placeholder="Enter score"
+                  required
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Submitting...' : 'Submit Score'}
+            </button>
+
+            {message && (
+              <div className={`message ${message.includes('Error') ? 'error' : 'success'}`}>
+                {message}
+              </div>
+            )}
+          </form>
+        </div>
+      )}
 
       <style jsx>{`
         .score-entry {
@@ -217,10 +235,89 @@ function ScoreEntry({ user }) {
           text-align: center;
           margin-top: 40px;
         }
-        .score-form-container {
+        .event-selection {
+          margin-top: 20px;
+        }
+        .search-box {
+          margin-bottom: 20px;
+        }
+        .search-box input {
+          width: 100%;
+          padding: 12px 20px;
+          font-size: 16px;
+          border: 2px solid #ddd;
+          border-radius: 8px;
+        }
+        .search-box input:focus {
+          outline: none;
+          border-color: #007bff;
+        }
+        .no-events {
+          text-align: center;
+          padding: 40px;
+          background: #f8f9fa;
+          border-radius: 8px;
+        }
+        .events-grid {
           display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 30px;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 20px;
+        }
+        .event-card {
+          background: white;
+          padding: 20px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          cursor: pointer;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .event-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .event-card h3 {
+          margin: 0 0 10px 0;
+          color: #333;
+        }
+        .event-date, .event-location {
+          margin: 5px 0;
+          color: #666;
+          font-size: 14px;
+        }
+        .status-badge {
+          display: inline-block;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: bold;
+          margin-top: 10px;
+        }
+        .status-badge.active {
+          background: #d4edda;
+          color: #155724;
+        }
+        .status-badge.upcoming {
+          background: #fff3cd;
+          color: #856404;
+        }
+        .selected-event-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: white;
+          padding: 20px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .selected-event-header h2 {
+          margin: 0;
+        }
+        .selected-event-header p {
+          margin: 5px 0 0 0;
+          color: #666;
+        }
+        .score-form-container {
           margin-top: 20px;
         }
         .score-form {
@@ -234,7 +331,7 @@ function ScoreEntry({ user }) {
         }
         .form-row {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          grid-template-columns: 1fr 1fr;
           gap: 15px;
         }
         .form-group label {
@@ -257,16 +354,22 @@ function ScoreEntry({ user }) {
           border-color: #007bff;
           box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
         }
-        .btn-primary {
-          background: #007bff;
-          color: white;
+        .btn-primary, .btn-secondary {
           padding: 12px 30px;
           border: none;
           border-radius: 4px;
           font-size: 16px;
           cursor: pointer;
+        }
+        .btn-primary {
+          background: #007bff;
+          color: white;
           width: 100%;
           margin-top: 10px;
+        }
+        .btn-secondary {
+          background: #6c757d;
+          color: white;
         }
         .btn-primary:disabled {
           background: #6c757d;
@@ -288,31 +391,17 @@ function ScoreEntry({ user }) {
           color: #721c24;
           border: 1px solid #f5c6cb;
         }
-        .quick-tips {
-          background: white;
-          padding: 20px;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          height: fit-content;
-        }
-        .quick-tips h3 {
-          margin-top: 0;
-          color: #333;
-        }
-        .quick-tips ul {
-          margin: 0;
-          padding-left: 20px;
-        }
-        .quick-tips li {
-          margin-bottom: 8px;
-          color: #666;
-        }
         @media (max-width: 768px) {
-          .score-form-container {
+          .events-grid {
             grid-template-columns: 1fr;
           }
           .form-row {
             grid-template-columns: 1fr;
+          }
+          .selected-event-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 15px;
           }
         }
       `}</style>

@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useOrganization } from '../../contexts/OrganizationContext';
 
 function ScoreManagement() {
+  const { selectedOrganization } = useOrganization();
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [scores, setScores] = useState([]);
 
   useEffect(() => {
-    fetchEvents();
-  }, []);
+    if (selectedOrganization) {
+      fetchEvents();
+    }
+  }, [selectedOrganization]);
 
   useEffect(() => {
     if (selectedEvent) {
@@ -17,8 +21,10 @@ function ScoreManagement() {
   }, [selectedEvent]);
 
   const fetchEvents = async () => {
+    if (!selectedOrganization) return;
+    
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
+      const response = await API.get('CalisthenicsAPI', `/competitions?organizationId=${selectedOrganization.organizationId}`);
       setEvents(response);
       if (response.length > 0) {
         setSelectedEvent(response[0].eventId);

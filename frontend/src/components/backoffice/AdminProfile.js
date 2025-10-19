@@ -1,15 +1,18 @@
 import React from 'react';
 
 function AdminProfile({ user, signOut }) {
+  const isSuperAdmin = user?.attributes?.['custom:isSuperAdmin'] === 'true';
+  const userRole = isSuperAdmin ? 'Super Admin' : (user?.attributes?.['custom:role'] || 'Organizer');
+  
   return (
     <div className="admin-profile">
       <div className="profile-header">
         <div className="admin-avatar">
-          <span className="avatar-icon">👤</span>
+          <span className="avatar-icon">{isSuperAdmin ? '👑' : '👤'}</span>
         </div>
         <div className="admin-info">
           <h1>{user?.attributes?.given_name} {user?.attributes?.family_name}</h1>
-          <p className="role">System Administrator</p>
+          <p className="role">{isSuperAdmin ? 'Platform Administrator' : 'System Administrator'}</p>
           <p className="email">{user?.attributes?.email}</p>
         </div>
       </div>
@@ -32,7 +35,7 @@ function AdminProfile({ user, signOut }) {
             </div>
             <div className="info-item">
               <label>Role</label>
-              <span>Organizer</span>
+              <span>{userRole}</span>
             </div>
             <div className="info-item">
               <label>User ID</label>

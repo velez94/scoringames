@@ -4,6 +4,7 @@ import { API } from 'aws-amplify';
 function GeneralLeaderboard() {
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [wods, setWods] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [generalLeaderboard, setGeneralLeaderboard] = useState([]);
@@ -13,6 +14,7 @@ function GeneralLeaderboard() {
   useEffect(() => {
     fetchEvents();
     fetchAthletes();
+    fetchWods();
     fetchCategories();
   }, []);
 
@@ -39,7 +41,7 @@ function GeneralLeaderboard() {
 
   const fetchEvents = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
+      const response = await API.get('CalisthenicsAPI', '/competitions');
       setEvents(response || []);
     } catch (error) {
       console.error('Error fetching events:', error);
@@ -52,6 +54,15 @@ function GeneralLeaderboard() {
       setAthletes(response || []);
     } catch (error) {
       console.error('Error fetching athletes:', error);
+    }
+  };
+
+  const fetchWods = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/wods');
+      setWods(response || []);
+    } catch (error) {
+      console.error('Error fetching WODs:', error);
     }
   };
 
@@ -93,10 +104,10 @@ function GeneralLeaderboard() {
     // Group scores by workout
     const workoutScores = {};
     filteredScores.forEach(score => {
-      if (!workoutScores[score.workoutId]) {
-        workoutScores[score.workoutId] = [];
+      if (!workoutScores[score.wodId]) {
+        workoutScores[score.wodId] = [];
       }
-      workoutScores[score.workoutId].push(score);
+      workoutScores[score.wodId].push(score);
     });
 
     // Calculate points for each workout
@@ -120,8 +131,10 @@ function GeneralLeaderboard() {
         }
         
         athletePoints[actualAthleteId].totalPoints += points;
+        const wod = wods.find(w => w.wodId === score.wodId);
         athletePoints[actualAthleteId].wodResults.push({
-          workoutId: score.workoutId,
+          wodId: score.wodId,
+          wodName: wod?.name || 'Unknown WOD',
           position: index + 1,
           points: points,
           score: score.score
@@ -259,7 +272,7 @@ function GeneralLeaderboard() {
                         <div className="wod-results">
                           {athlete.wodResults.map((result, index) => (
                             <div key={index} className="wod-result">
-                              <span className="wod-name">{getWorkoutName(result.workoutId)}</span>
+                              <span className="wod-name">{result.wodName}</span>
                               <span className="wod-position">#{result.position} ({result.points}pts)</span>
                             </div>
                           ))}

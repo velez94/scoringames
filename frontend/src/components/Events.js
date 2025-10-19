@@ -17,7 +17,7 @@ function Events({ user }) {
 
   const fetchEvents = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/events');
+      const response = await API.get('CalisthenicsAPI', '/public/events');
       setEvents(response);
     } catch (error) {
       console.error('Error fetching events:', error);

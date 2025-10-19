@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useParams } from 'react-router-dom';
+import './Backoffice.css';
 
 function WODManagement() {
+  const { eventId } = useParams();
   const [wods, setWods] = useState([]);
   const [categories, setCategories] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -12,7 +15,8 @@ function WODManagement() {
     timeLimit: '',
     categoryId: '',
     movements: [{ exercise: '', reps: '', weight: '' }],
-    description: ''
+    description: '',
+    isShared: false
   });
 
   const wodFormats = ['AMRAP', 'Chipper', 'EMOM', 'RFT', 'Ladder', 'Tabata'];
@@ -24,7 +28,11 @@ function WODManagement() {
 
   const fetchWods = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/wods');
+      let url = '/wods';
+      if (eventId) {
+        url += `?eventId=${eventId}&includeShared=true`;
+      }
+      const response = await API.get('CalisthenicsAPI', url);
       setWods(response || []);
     } catch (error) {
       console.error('Error fetching WODs:', error);
@@ -33,7 +41,8 @@ function WODManagement() {
 
   const fetchCategories = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/categories');
+      if (!eventId) return;
+      const response = await API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`);
       setCategories(response || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -48,7 +57,8 @@ function WODManagement() {
       timeLimit: '',
       categoryId: '',
       movements: [{ exercise: '', reps: '', weight: '' }],
-      description: ''
+      description: '',
+      isShared: false
     });
     setShowModal(true);
   };
@@ -61,7 +71,8 @@ function WODManagement() {
       timeLimit: wod.timeLimit || '',
       categoryId: wod.categoryId || '',
       movements: wod.movements || [{ exercise: '', reps: '', weight: '' }],
-      description: wod.description || ''
+      description: wod.description || '',
+      isShared: wod.isShared || false
     });
     setShowModal(true);
   };
@@ -82,6 +93,7 @@ function WODManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
     try {
       const wodData = {
         ...formData,
@@ -89,6 +101,15 @@ function WODManagement() {
         createdAt: editingWod?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
+
+      // If no eventId (super admin platform view), create as transversal template
+      if (!eventId) {
+        wodData.eventId = 'transversal';
+        wodData.isTransversal = true;
+        wodData.isShared = true; // Transversal WODs are always shared
+      } else {
+        wodData.eventId = eventId;
+      }
 
       console.log('Saving WOD data:', wodData);
 
@@ -138,9 +159,9 @@ function WODManagement() {
   return (
     <div className="wod-management">
       <div className="page-header">
-        <h1>WOD Management</h1>
+        <h1>WOD Management {!eventId && '(Platform Templates)'}</h1>
         <button onClick={handleCreate} className="btn-primary">
-          Create WOD
+          {eventId ? 'Create WOD' : 'Create Template'}
         </button>
       </div>
 
@@ -148,8 +169,13 @@ function WODManagement() {
         {wods.map(wod => (
           <div key={wod.wodId} className="wod-card">
             <div className="wod-header">
-              <h3>{wod.name}</h3>
-              <span className="format-badge">{wod.format}</span>
+              <h3>{wod.displayName || wod.name}</h3>
+              <div className="wod-badges">
+                <span className="format-badge">{wod.format}</span>
+                {wod.isShared && <span className="shared-badge">Shared</span>}
+                {wod.isTransversal && <span className="transversal-badge">Template</span>}
+                {wod.isSharedWod && <span className="external-badge">External</span>}
+              </div>
             </div>
             
             {wod.timeLimit && (
@@ -179,21 +205,30 @@ function WODManagement() {
             )}
 
             <div className="wod-actions">
-              <button onClick={() => handleEdit(wod)} className="btn-outline">
-                Edit
-              </button>
-              <button onClick={() => handleDelete(wod.wodId)} className="btn-danger">
-                Delete
-              </button>
+              {!wod.isSharedWod && (
+                <>
+                  <button onClick={() => handleEdit(wod)} className="btn-outline">
+                    Edit
+                  </button>
+                  <button onClick={() => handleDelete(wod.wodId)} className="btn-danger">
+                    Delete
+                  </button>
+                </>
+              )}
+              {wod.isSharedWod && (
+                <span className="shared-info">
+                  From: {wod.originalEventId}
+                </span>
+              )}
             </div>
           </div>
         ))}
 
         {wods.length === 0 && (
           <div className="no-wods">
-            <p>No WODs created yet.</p>
+            <p>No {eventId ? 'WODs created yet' : 'templates found'}.</p>
             <button onClick={handleCreate} className="btn-primary">
-              Create First WOD
+              {eventId ? 'Create First WOD' : 'Create First Template'}
             </button>
           </div>
         )}
@@ -303,6 +338,19 @@ function WODManagement() {
                 />
               </div>
 
+              <div className="form-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={formData.isShared}
+                    onChange={(e) => setFormData({...formData, isShared: e.target.checked})}
+                  />
+                  <span className="checkmark"></span>
+                  Share this WOD with entire platform
+                  <small>Other organizations can use this WOD in their events</small>
+                </label>
+              </div>
+
               <div className="form-actions">
                 <button type="submit" className="btn-primary">
                   {editingWod ? 'Update' : 'Create'} WOD
@@ -319,6 +367,8 @@ function WODManagement() {
       <style jsx>{`
         .wod-management {
           padding: 20px;
+          max-width: 1400px;
+          margin: 0 auto;
         }
         .page-header {
           display: flex;
@@ -333,8 +383,10 @@ function WODManagement() {
         }
         .wod-card {
           background: white;
-          border-radius: 8px;
+          border-radius: 12px;
           padding: 20px;
+          max-width: 1400px;
+          margin: 0 auto;
           box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .wod-header {
@@ -347,8 +399,34 @@ function WODManagement() {
           margin: 0;
           color: #333;
         }
+        .wod-badges {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
         .format-badge {
           background: #007bff;
+          color: white;
+          padding: 4px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+        }
+        .shared-badge {
+          background: #28a745;
+          color: white;
+          padding: 4px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+        }
+        .transversal-badge {
+          background: #6f42c1;
+          color: white;
+          padding: 4px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+        }
+        .external-badge {
+          background: #fd7e14;
           color: white;
           padding: 4px 8px;
           border-radius: 12px;
@@ -425,8 +503,10 @@ function WODManagement() {
         }
         .wod-modal {
           background: white;
-          border-radius: 8px;
+          border-radius: 12px;
           padding: 20px;
+          max-width: 1400px;
+          margin: 0 auto;
           width: 90%;
           max-width: 600px;
           max-height: 90vh;
@@ -473,6 +553,36 @@ function WODManagement() {
           gap: 10px;
           justify-content: flex-end;
           margin-top: 20px;
+        }
+        .checkbox-label {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          cursor: pointer;
+          font-weight: normal;
+        }
+        .checkbox-label input[type="checkbox"] {
+          width: auto;
+          margin: 0;
+        }
+        .checkbox-label small {
+          display: block;
+          color: #666;
+          font-size: 12px;
+          margin-top: 4px;
+        }
+        .shared-info {
+          color: #666;
+          font-size: 12px;
+          font-style: italic;
+        }
+        .info-message {
+          background: #e3f2fd;
+          color: #1976d2;
+          padding: 10px 15px;
+          border-radius: 4px;
+          font-size: 14px;
+          border: 1px solid #bbdefb;
         }
         @media (max-width: 768px) {
           .wods-grid {

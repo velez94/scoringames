@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "awslabs.core-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.core-mcp-server@latest"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_PROFILE": "labvel-dev",
+        "AWS_REGION": "us-east-2",
+        "aws-foundation": "true",
+        "ci-cd-devops": "true",
+        "serverless-architecture": "true",
+        "nosql-db-specialist": "true",
+        "frontend-dev": "true",
+        "solutions-architect": "true",
+        "finops": "true",
+        "monitoring-observability": "true",
+        "security-identity": "true"
+      },
+      "autoApprove": [],
+      "disabled": false
+    }
+  }
+}

@@ -1,24 +1,35 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Amplify, Auth } from 'aws-amplify';
-import { Authenticator } from '@aws-amplify/ui-react';
+import { Authenticator, useAuthenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
+import { OrganizationProvider } from './contexts/OrganizationContext';
 import BackofficeLayout from './components/BackofficeLayout';
 import UserSetup from './components/UserSetup';
+import LandingPage from './components/LandingPage';
+import PublicEvents from './components/PublicEvents';
+import PublicEventDetail from './components/PublicEventDetail';
+import { canAccessBackoffice } from './utils/organizerRoles';
 
-// Production configuration from CDK deployment
+// Configuration from environment variables
 Amplify.configure({
   Auth: {
-    region: 'us-east-2',
-    userPoolId: 'us-east-2_byZ9cagQ0',
-    userPoolWebClientId: '34e7c5rhk57sgab81pia0c87s6',
+    region: process.env.REACT_APP_REGION,
+    userPoolId: process.env.REACT_APP_USER_POOL_ID,
+    userPoolWebClientId: process.env.REACT_APP_USER_POOL_CLIENT_ID,
+  },
+  Storage: {
+    AWSS3: {
+      bucket: 'calisthenics-event-images-571340586587',
+      region: process.env.REACT_APP_REGION,
+    }
   },
   API: {
     endpoints: [
       {
         name: 'CalisthenicsAPI',
-        endpoint: 'https://iokvgd6tm3.execute-api.us-east-2.amazonaws.com/prod',
-        region: 'us-east-2',
+        endpoint: process.env.REACT_APP_API_URL,
+        region: process.env.REACT_APP_REGION,
         custom_header: async () => {
           try {
             const session = await Auth.currentSession();
@@ -61,69 +72,146 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-function App() {
-  const signUpFields = {
-    signUp: {
-      username: {
-        order: 1,
-        placeholder: 'Enter your email',
-        isRequired: true,
-        label: 'Email *'
-      },
-      given_name: {
-        order: 2,
-        placeholder: 'Enter your first name',
-        isRequired: true,
-        label: 'First Name *'
-      },
-      family_name: {
-        order: 3,
-        placeholder: 'Enter your last name',
-        isRequired: true,
-        label: 'Last Name *'
-      },
-      phone_number: {
-        order: 4,
-        placeholder: '+1234567890',
-        isRequired: true,
-        label: 'Phone Number *'
-      },
-      password: {
-        order: 5,
-        placeholder: 'Enter your password',
-        isRequired: true,
-        label: 'Password *'
-      },
-      confirm_password: {
-        order: 6,
-        placeholder: 'Confirm your password',
-        isRequired: true,
-        label: 'Confirm Password *'
-      }
-    }
-  };
+function AuthPage() {
+  return (
+    <Authenticator 
+      initialState="signIn"
+      loginMechanisms={['email']}
+      signUpAttributes={['given_name', 'family_name', 'nickname']}
+      formFields={{
+        signUp: {
+          given_name: {
+            label: 'First Name',
+            placeholder: 'Enter your first name',
+            isRequired: true,
+            order: 1
+          },
+          family_name: {
+            label: 'Last Name',
+            placeholder: 'Enter your last name',
+            isRequired: true,
+            order: 2
+          },
+          nickname: {
+            label: 'Alias',
+            placeholder: 'Enter your alias (e.g., pepito)',
+            isRequired: false,
+            order: 3
+          },
+          email: {
+            label: 'Email',
+            placeholder: 'Enter your email',
+            isRequired: true,
+            order: 4
+          },
+          password: {
+            label: 'Password',
+            placeholder: 'Enter your password',
+            isRequired: true,
+            order: 5
+          },
+          confirm_password: {
+            label: 'Confirm Password',
+            placeholder: 'Confirm your password',
+            isRequired: true,
+            order: 6
+          }
+        }
+      }}
+      components={{
+        SignUp: {
+          FormFields() {
+            const { validationErrors } = useAuthenticator();
+            return (
+              <>
+                <Authenticator.SignUp.FormFields />
+                <div style={{ marginTop: '20px' }}>
+                  <label style={{ display: 'block', marginBottom: '10px', fontWeight: '600' }}>
+                    I am a
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <label style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      padding: '15px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}>
+                      <input 
+                        type="radio" 
+                        name="custom:role" 
+                        value="athlete"
+                        defaultChecked
+                        style={{ marginRight: '10px' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: '600' }}>Athlete</div>
+                        <div style={{ fontSize: '14px', color: '#718096' }}>Compete in events</div>
+                      </div>
+                    </label>
+                    <label style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      padding: '15px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}>
+                      <input 
+                        type="radio" 
+                        name="custom:role" 
+                        value="organizer"
+                        style={{ marginRight: '10px' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: '600' }}>Organizer</div>
+                        <div style={{ fontSize: '14px', color: '#718096' }}>Create and manage competitions</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </>
+            );
+          }
+        }
+      }}
+    >
+      {({ signOut, user }) => {
+        const isOrganizer = canAccessBackoffice(user);
+        
+        return (
+          <Routes>
+            {isOrganizer ? (
+              <Route path="/*" element={
+                <OrganizationProvider>
+                  <BackofficeLayout user={user} signOut={signOut} />
+                </OrganizationProvider>
+              } />
+            ) : (
+              <Route path="/*" element={<UserSetup user={user} signOut={signOut} />} />
+            )}
+          </Routes>
+        );
+      }}
+    </Authenticator>
+  );
+}
 
+function App() {
   return (
     <ErrorBoundary>
-      <div className="App">
-        <Authenticator formFields={signUpFields}>
-          {({ signOut, user }) => {
-            const userRole = user?.attributes?.['custom:role'] || 'athlete';
-            
-            return (
-              <Router>
-                <Routes>
-                  {userRole === 'organizer' ? (
-                    <Route path="/*" element={<BackofficeLayout user={user} signOut={signOut} />} />
-                  ) : (
-                    <Route path="/*" element={<UserSetup user={user} signOut={signOut} />} />
-                  )}
-                </Routes>
-              </Router>
-            );
-          }}
-        </Authenticator>
-      </div>
+      <Router>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/events" element={<PublicEvents />} />
+          <Route path="/events/:eventId" element={<PublicEventDetail />} />
+          <Route path="/login" element={<AuthPage />} />
+          <Route path="/*" element={<AuthPage />} />
+        </Routes>
+      </Router>
     </ErrorBoundary>
   );
 }

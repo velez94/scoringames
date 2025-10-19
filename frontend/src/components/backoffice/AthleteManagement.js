@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useOrganization } from '../../contexts/OrganizationContext';
 
 function AthleteManagement() {
+  const { selectedOrganization } = useOrganization();
   const [athletes, setAthletes] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [events, setCompetitions] = useState([]);
+  const [athleteCompetitions, setAthleteCompetitions] = useState({});
+  const [expandedAthlete, setExpandedAthlete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importSummary, setImportSummary] = useState(null);
   const [editingAthlete, setEditingAthlete] = useState(null);
   const [formData, setFormData] = useState({
     firstName: '',
@@ -19,8 +26,14 @@ function AthleteManagement() {
 
   useEffect(() => {
     fetchAthletes();
-    fetchCategories();
+    fetchCompetitions();
   }, []);
+
+  useEffect(() => {
+    if (events.length > 0) {
+      fetchCategories();
+    }
+  }, [events]);
 
   const fetchAthletes = async () => {
     try {
@@ -34,11 +47,90 @@ function AthleteManagement() {
 
   const fetchCategories = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/categories');
-      setCategories(response || []);
+      // Get categories for all events
+      const allCategories = [];
+      for (const event of events) {
+        try {
+          const eventCategories = await API.get('CalisthenicsAPI', `/categories?eventId=${event.eventId}`);
+          allCategories.push(...(eventCategories || []));
+        } catch (error) {
+          console.error(`Error fetching categories for event ${event.eventId}:`, error);
+        }
+      }
+      setCategories(allCategories);
     } catch (error) {
       console.error('Error fetching categories:', error);
       setCategories([]);
+    }
+  };
+
+  const fetchCompetitions = async () => {
+    try {
+      // Fetch all published events since athletes can register for any event
+      const response = await API.get('CalisthenicsAPI', '/public/events');
+      const comps = Array.isArray(response) ? response : [];
+      console.log('Competitions loaded:', comps);
+      setCompetitions(comps);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      setCompetitions([]);
+    }
+  };
+
+  const fetchAthleteCompetitions = async (athleteId) => {
+    try {
+      const response = await API.get('CalisthenicsAPI', `/athletes/${athleteId}/competitions`);
+      const comps = Array.isArray(response) ? response : [];
+      console.log('Athlete events:', comps);
+      setAthleteCompetitions(prev => ({
+        ...prev,
+        [athleteId]: comps
+      }));
+    } catch (error) {
+      console.error('Error fetching athlete events:', error);
+      setAthleteCompetitions(prev => ({
+        ...prev,
+        [athleteId]: []
+      }));
+    }
+  };
+
+  const toggleAthleteExpand = async (athleteId) => {
+    if (expandedAthlete === athleteId) {
+      setExpandedAthlete(null);
+    } else {
+      setExpandedAthlete(athleteId);
+      if (!athleteCompetitions[athleteId]) {
+        await fetchAthleteCompetitions(athleteId);
+      }
+    }
+  };
+
+  const handleRegister = async (athleteId, eventId, categoryId) => {
+    try {
+      await API.post('CalisthenicsAPI', `/athletes/${athleteId}/competitions`, {
+        body: { eventId, categoryId }
+      });
+      await fetchAthleteCompetitions(athleteId);
+      alert('Athlete registered successfully');
+    } catch (error) {
+      console.error('Error registering athlete:', error);
+      alert('Error registering athlete. Please try again.');
+    }
+  };
+
+  const handleDeregister = async (athleteId, eventId, eventName) => {
+    if (!window.confirm(`Are you sure you want to deregister this athlete from "${eventName}"?`)) {
+      return;
+    }
+
+    try {
+      await API.del('CalisthenicsAPI', `/athletes/${athleteId}/competitions/${eventId}`);
+      await fetchAthleteCompetitions(athleteId);
+      alert('Athlete deregistered successfully');
+    } catch (error) {
+      console.error('Error deregistering athlete:', error);
+      alert('Error deregistering athlete. Please try again.');
     }
   };
 
@@ -123,6 +215,55 @@ function AthleteManagement() {
     }
   };
 
+  const handleFileImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
+        const headers = rows[0];
+        
+        const summary = {
+          total: rows.length - 1,
+          success: 0,
+          errors: [],
+          fields: headers
+        };
+
+        for (let i = 1; i < rows.length; i++) {
+          if (!rows[i][0]) continue;
+          
+          const athleteData = {
+            athleteId: `athlete-${Date.now()}-${i}`,
+            firstName: rows[i][0] || '',
+            lastName: rows[i][1] || '',
+            email: rows[i][2] || '',
+            alias: rows[i][3] || '',
+            age: rows[i][4] ? parseInt(rows[i][4]) : 0,
+            categoryId: rows[i][5] || '',
+            createdAt: new Date().toISOString()
+          };
+
+          try {
+            await API.post('CalisthenicsAPI', '/athletes', { body: athleteData });
+            summary.success++;
+          } catch (error) {
+            summary.errors.push(`Row ${i + 1}: ${error.message}`);
+          }
+        }
+
+        setImportSummary(summary);
+        await fetchAthletes();
+      } catch (error) {
+        alert('Error parsing file. Please ensure it\'s a valid CSV.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const filteredAthletes = athletes.filter(athlete => {
     const fullName = `${athlete.firstName} ${athlete.lastName}`.toLowerCase();
     const matchesSearch = fullName.includes(searchTerm.toLowerCase()) ||
@@ -136,9 +277,14 @@ function AthleteManagement() {
     <div className="athlete-management">
       <div className="page-header">
         <h1>Athlete Management</h1>
-        <button onClick={handleCreate} className="btn-primary">
-          Add New Athlete
-        </button>
+        <div style={{display: 'flex', gap: '10px'}}>
+          <button onClick={() => setShowImportModal(true)} className="btn-outline">
+            Import CSV
+          </button>
+          <button onClick={handleCreate} className="btn-primary">
+            Add New Athlete
+          </button>
+        </div>
       </div>
 
       <div className="filters">
@@ -170,6 +316,7 @@ function AthleteManagement() {
               <th>Email</th>
               <th>Age</th>
               <th>Category</th>
+              <th>Competitions</th>
               <th>Registered</th>
               <th>Actions</th>
             </tr>
@@ -177,36 +324,49 @@ function AthleteManagement() {
           <tbody>
             {filteredAthletes.map(athlete => {
               const fullName = `${athlete.firstName} ${athlete.lastName}`;
+              const isExpanded = expandedAthlete === athlete.athleteId;
+              const athleteComps = athleteCompetitions[athlete.athleteId] || [];
+              
               return (
-                <tr key={athlete.athleteId}>
-                  <td className="athlete-name">
-                    <div className="avatar">
-                      {fullName.split(' ').map(n => n[0]).join('').toUpperCase()}
-                    </div>
-                    {fullName}
-                  </td>
-                  <td>{athlete.alias || '-'}</td>
-                  <td>{athlete.email}</td>
-                  <td>{athlete.age || '-'}</td>
-                  <td>
-                    <span className="category-badge">
-                      {categories.find(c => c.categoryId === athlete.categoryId)?.name || 'Not assigned'}
-                    </span>
-                  </td>
-                  <td>{new Date(athlete.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    <div className="actions">
+                <React.Fragment key={athlete.athleteId}>
+                  <tr>
+                    <td className="athlete-name">
+                      <div className="avatar">
+                        {fullName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                      </div>
+                      {fullName}
+                    </td>
+                    <td>{athlete.alias || '-'}</td>
+                    <td>{athlete.email}</td>
+                    <td>{athlete.age || '-'}</td>
+                    <td>
+                      <span className="category-badge">
+                        {categories.find(c => c.categoryId === athlete.categoryId)?.name || 'Not assigned'}
+                      </span>
+                    </td>
+                    <td>
                       <button 
-                        onClick={() => handleEdit(athlete)}
-                        className="btn-sm btn-outline"
+                        onClick={() => toggleAthleteExpand(athlete.athleteId)}
+                        className="btn-sm btn-info"
+                        title="View events"
                       >
-                        Edit
+                        {isExpanded ? '▼' : '▶'} Competitions ({athleteComps.length})
                       </button>
-                      <button 
-                        onClick={() => handleReset(athlete)}
-                        className="btn-sm btn-warning"
-                      >
-                        Reset
+                    </td>
+                    <td>{new Date(athlete.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      <div className="actions">
+                        <button 
+                          onClick={() => handleEdit(athlete)}
+                          className="btn-sm btn-outline"
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleReset(athlete)}
+                          className="btn-sm btn-warning"
+                        >
+                          Reset
                       </button>
                       <button 
                         onClick={() => handleDelete(athlete.athleteId)}
@@ -217,7 +377,102 @@ function AthleteManagement() {
                     </div>
                   </td>
                 </tr>
-              );
+                {isExpanded && (
+                  <tr className="expanded-row">
+                    <td colSpan="8">
+                      <div className="events-detail">
+                        <h4>Registered Competitions</h4>
+                        {athleteComps.length > 0 ? (
+                          <div className="events-list">
+                            {athleteComps.map((comp) => {
+                              const competition = events.find(c => 
+                                c.eventId === comp.eventId || 
+                                c.id === comp.eventId ||
+                                c.eventId === comp.id
+                              );
+                              return (
+                                <div key={comp.eventId || comp.id} className="competition-item">
+                                  <div className="comp-info">
+                                    <strong>
+                                      {competition?.name || competition?.title || comp.eventId || comp.id || 'Unknown Competition'}
+                                      {competition?.startDate && ` (${new Date(competition.startDate).toLocaleDateString()})`}
+                                    </strong>
+                                    <span className="comp-date">
+                                      Registered: {new Date(comp.registrationDate || comp.registeredAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  <div className="comp-actions">
+                                    <span className={`status-badge ${competition?.status || 'active'}`}>
+                                      {competition?.status || 'Active'}
+                                    </span>
+                                    <button 
+                                      className="btn-deregister"
+                                      onClick={() => handleDeregister(
+                                        athlete.userId || athlete.athleteId,
+                                        comp.eventId,
+                                        competition?.name || comp.eventId
+                                      )}
+                                      title="Deregister athlete from this event"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="no-events">Not registered in any events</p>
+                        )}
+                        
+                        <h4>Register for Event</h4>
+                        <div className="registration-section">
+                          {events.filter(event => {
+                            const athleteComps = athleteCompetitions[athlete.userId || athlete.athleteId] || [];
+                            return !athleteComps.some(comp => comp.eventId === event.eventId);
+                          }).map(event => (
+                            <div key={event.eventId} className="event-registration">
+                              <div className="event-info">
+                                <strong>{event.name}</strong>
+                                <span className="event-date">
+                                  {new Date(event.startDate).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <select 
+                                className="category-select"
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    handleRegister(
+                                      athlete.userId || athlete.athleteId,
+                                      event.eventId,
+                                      e.target.value
+                                    );
+                                    e.target.value = '';
+                                  }
+                                }}
+                              >
+                                <option value="">Select Category</option>
+                                {categories.filter(cat => cat.eventId === event.eventId).map(category => (
+                                  <option key={category.categoryId} value={category.categoryId}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+                          {events.filter(event => {
+                            const athleteComps = athleteCompetitions[athlete.userId || athlete.athleteId] || [];
+                            return !athleteComps.some(comp => comp.eventId === event.eventId);
+                          }).length === 0 && (
+                            <p className="no-events">All available events registered</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
             })}
           </tbody>
         </table>
@@ -439,6 +694,130 @@ function AthleteManagement() {
         .btn-danger:hover {
           background: #c82333;
         }
+        .btn-info {
+          background: #17a2b8;
+          color: white;
+          border-color: #17a2b8;
+        }
+        .btn-info:hover {
+          background: #138496;
+        }
+        .expanded-row {
+          background: #f8f9fa;
+        }
+        .expanded-row td {
+          padding: 0 !important;
+        }
+        .registration-section {
+          margin-top: 20px;
+          padding-top: 20px;
+          border-top: 1px solid #dee2e6;
+        }
+        .event-registration {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px;
+          margin-bottom: 10px;
+          background: #f8f9fa;
+          border-radius: 4px;
+        }
+        .event-info {
+          display: flex;
+          flex-direction: column;
+        }
+        .event-date {
+          font-size: 0.9em;
+          color: #666;
+        }
+        .category-select {
+          padding: 5px 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          background: white;
+        }
+        .events-detail {
+          padding: 20px;
+          border-top: 2px solid #dee2e6;
+        }
+        .events-detail h4 {
+          margin: 0 0 15px 0;
+          color: #495057;
+          font-size: 16px;
+        }
+        .events-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .competition-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px;
+          background: white;
+          border-radius: 6px;
+          border: 1px solid #dee2e6;
+        }
+        .comp-info {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .comp-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .btn-deregister {
+          background: #dc3545;
+          color: white;
+          border: none;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+        }
+        .btn-deregister:hover {
+          background: #c82333;
+          transform: scale(1.1);
+        }
+        .comp-info strong {
+          color: #212529;
+        }
+        .comp-date {
+          font-size: 12px;
+          color: #6c757d;
+        }
+        .status-badge {
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: capitalize;
+        }
+        .status-badge.active {
+          background: #d4edda;
+          color: #155724;
+        }
+        .status-badge.upcoming {
+          background: #d1ecf1;
+          color: #0c5460;
+        }
+        .status-badge.completed {
+          background: #d6d8db;
+          color: #383d41;
+        }
+        .no-events {
+          color: #6c757d;
+          font-style: italic;
+          margin: 10px 0;
+        }
         .btn-warning {
           background: #ffc107;
           color: #212529;
@@ -516,7 +895,109 @@ function AthleteManagement() {
           justify-content: flex-end;
           margin-top: 30px;
         }
+
+        /* Mobile Responsive Styles */
+        @media (max-width: 768px) {
+          .athlete-management {
+            padding: 10px;
+          }
+          .page-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 15px;
+          }
+          .page-header h1 {
+            font-size: 24px;
+          }
+          .filters {
+            flex-direction: column;
+            width: 100%;
+          }
+          .search-input {
+            max-width: 100%;
+          }
+          .table-container {
+            overflow-x: auto;
+          }
+          .athletes-table {
+            min-width: 600px;
+          }
+          .athletes-table th,
+          .athletes-table td {
+            padding: 10px 8px;
+            font-size: 13px;
+          }
+          .avatar {
+            width: 32px;
+            height: 32px;
+            font-size: 12px;
+          }
+          .actions {
+            flex-direction: column;
+            gap: 4px;
+          }
+          .btn-sm {
+            width: 100%;
+            text-align: center;
+          }
+          .competition-item {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+          .modal-content {
+            width: 95%;
+            max-height: 90vh;
+            overflow-y: auto;
+          }
+        }
       `}</style>
+
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Import Athletes from CSV</h3>
+            
+            <div className="import-instructions">
+              <h4>CSV Format:</h4>
+              <p>firstName,lastName,email,alias,age,categoryId</p>
+              <p>Example: John,Doe,john@email.com,JD,25,category-1</p>
+            </div>
+
+            <input
+              type="file"
+              accept=".csv,.txt"
+              onChange={handleFileImport}
+              style={{marginBottom: '20px'}}
+            />
+
+            {importSummary && (
+              <div className="import-summary">
+                <h4>Import Summary</h4>
+                <p>Total rows: {importSummary.total}</p>
+                <p style={{color: '#28a745'}}>Success: {importSummary.success}</p>
+                <p style={{color: '#dc3545'}}>Errors: {importSummary.errors.length}</p>
+                {importSummary.errors.length > 0 && (
+                  <div style={{maxHeight: '200px', overflow: 'auto', marginTop: '10px'}}>
+                    {importSummary.errors.map((err, i) => (
+                      <p key={i} style={{color: '#dc3545', fontSize: '12px'}}>{err}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="form-actions">
+              <button onClick={() => {
+                setShowImportModal(false);
+                setImportSummary(null);
+              }} className="btn-outline">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

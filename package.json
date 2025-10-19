@@ -7,15 +7,29 @@
     "test": "jest",
     "cdk": "cdk",
     "deploy": "cdk deploy",
-    "destroy": "cdk destroy"
+    "deploy:frontend": "./scripts/deploy-frontend.sh",
+    "deploy:all": "npm run build && npm run deploy && npm run deploy:frontend",
+    "destroy": "cdk destroy",
+    "local:setup": "./scripts/setup-local.sh",
+    "local:start": "docker-compose up -d",
+    "local:stop": "docker-compose down",
+    "local:api": "node scripts/local-api.js",
+    "seed": "node scripts/seed-multitenant.js --profile=labvel-dev",
+    "seed:local": "node scripts/seed-multitenant.js --local",
+    "create-admin": "node scripts/create-super-admin.js"
   },
   "devDependencies": {
+    "@aws-sdk/client-cloudformation": "^3.910.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.910.0",
+    "@aws-sdk/client-dynamodb": "^3.910.0",
+    "@aws-sdk/lib-dynamodb": "^3.910.0",
     "@types/jest": "^29.4.0",
     "@types/node": "20.14.6",
+    "aws-cdk": "^2.170.0",
     "jest": "^29.5.0",
     "ts-jest": "^29.0.5",
-    "aws-cdk": "^2.170.0",
-    "typescript": "~5.6.0"
+    "typescript": "~5.6.0",
+    "uuid": "^13.0.0"
   },
   "dependencies": {
     "@aws-solutions-constructs/aws-eventbridge-lambda": "^2.70.0",

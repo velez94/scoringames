@@ -1,7 +1,6 @@
 const { SFNClient, StartSyncExecutionCommand } = require('@aws-sdk/client-sfn');
-const { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand, QueryCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const logger = require('./utils/logger');
 
 const sfn = new SFNClient({});
 const client = new DynamoDBClient({});
@@ -23,6 +22,15 @@ exports.handler = async (event) => {
   }
 
   try {
+    console.log('Scheduler request received', { 
+      httpMethod: event.httpMethod, 
+      pathParameters: event.pathParameters,
+      hasSchedulesTable: !!SCHEDULES_TABLE 
+    });
+
+    if (!SCHEDULES_TABLE) {
+      throw new Error('SCHEDULES_TABLE environment variable not set');
+    }
     const { httpMethod, pathParameters, body } = event;
     const requestBody = body ? JSON.parse(body) : {};
     
@@ -31,13 +39,29 @@ exports.handler = async (event) => {
     const eventId = pathParts[0];
     const scheduleId = pathParts[1];
 
-    logger.info('Step Functions scheduler request', { httpMethod, eventId, scheduleId });
+    console.log('Step Functions scheduler request', { httpMethod, eventId, scheduleId });
 
     switch (httpMethod) {
       case 'POST':
         if (eventId && !scheduleId) {
           const schedule = await generateScheduleSync(eventId, requestBody);
           return { statusCode: 201, headers, body: JSON.stringify(schedule) };
+        }
+        if (eventId && scheduleId === 'save') {
+          // Handle /scheduler/{eventId}/save
+          const saved = await saveSchedule(eventId, requestBody);
+          return { statusCode: 200, headers, body: JSON.stringify(saved) };
+        }
+        if (eventId && scheduleId) {
+          const action = pathParts[2]; // publish or unpublish
+          if (action === 'publish') {
+            const result = await publishSchedule(eventId, scheduleId);
+            return { statusCode: 200, headers, body: JSON.stringify(result) };
+          }
+          if (action === 'unpublish') {
+            const result = await unpublishSchedule(eventId, scheduleId);
+            return { statusCode: 200, headers, body: JSON.stringify(result) };
+          }
         }
         break;
 
@@ -74,7 +98,7 @@ exports.handler = async (event) => {
     return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found' }) };
 
   } catch (error) {
-    logger.error('Step Functions scheduler error', { 
+    console.error('Step Functions scheduler error', { 
       error: error.message, 
       stack: error.stack 
     });
@@ -88,7 +112,7 @@ exports.handler = async (event) => {
 };
 
 async function generateScheduleSync(eventId, config) {
-  logger.info('Starting Step Functions schedule generation', { eventId });
+  console.log('Starting Step Functions schedule generation', { eventId });
 
   const input = {
     eventId,
@@ -102,7 +126,7 @@ async function generateScheduleSync(eventId, config) {
       input: JSON.stringify(input)
     }));
 
-    logger.info('Step Functions execution result', { 
+    console.log('Step Functions execution result', { 
       eventId, 
       status: result.status,
       hasOutput: !!result.output 
@@ -115,14 +139,14 @@ async function generateScheduleSync(eventId, config) {
       
       const output = JSON.parse(result.output);
       
-      logger.info('Schedule generation completed via Step Functions', { 
+      console.log('Schedule generation completed via Step Functions', { 
         eventId, 
         scheduleId: output.scheduleId 
       });
       return output;
     } else {
       const errorMessage = result.cause || result.error || 'Unknown Step Functions error';
-      logger.error('Step Functions execution failed', { 
+      console.error('Step Functions execution failed', { 
         eventId, 
         status: result.status,
         error: errorMessage 
@@ -131,7 +155,7 @@ async function generateScheduleSync(eventId, config) {
     }
 
   } catch (error) {
-    logger.error('Step Functions execution error', { 
+    console.error('Step Functions execution error', { 
       eventId, 
       error: error.message,
       stack: error.stack 
@@ -189,4 +213,45 @@ async function listSchedules(eventId) {
     ExpressionAttributeValues: { ':eventId': eventId }
   }));
   return Items || [];
+}
+
+async function publishSchedule(eventId, scheduleId) {
+  await dynamodb.send(new UpdateCommand({
+    TableName: SCHEDULES_TABLE,
+    Key: { eventId, scheduleId },
+    UpdateExpression: 'SET published = :published, publishedAt = :publishedAt',
+    ExpressionAttributeValues: {
+      ':published': true,
+      ':publishedAt': new Date().toISOString()
+    }
+  }));
+  return { published: true };
+}
+
+async function unpublishSchedule(eventId, scheduleId) {
+  await dynamodb.send(new UpdateCommand({
+    TableName: SCHEDULES_TABLE,
+    Key: { eventId, scheduleId },
+    UpdateExpression: 'SET published = :published REMOVE publishedAt',
+    ExpressionAttributeValues: {
+      ':published': false
+    }
+  }));
+  return { published: false };
+}
+
+async function saveSchedule(eventId, scheduleData) {
+  const schedule = {
+    ...scheduleData,
+    eventId,
+    scheduleId: scheduleData.scheduleId || `schedule-${Date.now()}`,
+    updatedAt: new Date().toISOString()
+  };
+
+  await dynamodb.send(new PutCommand({
+    TableName: SCHEDULES_TABLE,
+    Item: schedule
+  }));
+
+  return schedule;
 }

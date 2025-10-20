@@ -127,7 +127,18 @@ function EventEdit() {
       for (const category of formData.categories) {
         if (!currentCategoryIds.includes(category.categoryId)) {
           await API.put('CalisthenicsAPI', `/categories/${category.categoryId}`, {
-            body: { eventId }
+            body: { 
+              eventId,
+              maxParticipants: category.maxParticipants || null
+            }
+          });
+        } else {
+          // Update existing category quota
+          await API.put('CalisthenicsAPI', `/categories/${category.categoryId}`, {
+            body: { 
+              eventId,
+              maxParticipants: category.maxParticipants || null
+            }
           });
         }
       }
@@ -171,6 +182,17 @@ function EventEdit() {
     setFormData({
       ...formData,
       categories: formData.categories.filter(c => c.categoryId !== categoryId)
+    });
+  };
+
+  const updateCategoryQuota = (categoryId, maxParticipants) => {
+    setFormData({
+      ...formData,
+      categories: formData.categories.map(category => 
+        category.categoryId === categoryId 
+          ? { ...category, maxParticipants }
+          : category
+      )
     });
   };
 
@@ -354,18 +376,31 @@ function EventEdit() {
             <div className="selected-wods">
               <h4>Selected Categories ({formData.categories.length})</h4>
               {formData.categories.map((category) => (
-                <div key={category.categoryId} className="wod-item selected">
-                  <div className="wod-info">
-                    <strong>{category.name}</strong>
-                    <span className="wod-format">{category.description}</span>
+                <div key={category.categoryId} className="category-item-with-quota">
+                  <div className="category-main-info">
+                    <div className="wod-info">
+                      <strong>{category.name}</strong>
+                      <span className="wod-format">{category.description}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-remove"
+                      onClick={() => removeCategory(category.categoryId)}
+                    >
+                      × Remove
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn-remove"
-                    onClick={() => removeCategory(category.categoryId)}
-                  >
-                    × Remove
-                  </button>
+                  <div className="category-quota-settings">
+                    <label>Max Participants for this category:</label>
+                    <input
+                      type="number"
+                      value={category.maxParticipants || ''}
+                      onChange={(e) => updateCategoryQuota(category.categoryId, e.target.value ? parseInt(e.target.value) : null)}
+                      placeholder="Leave empty for unlimited"
+                      min="1"
+                      className="quota-input"
+                    />
+                  </div>
                 </div>
               ))}
               {formData.categories.length === 0 && (

@@ -12,6 +12,7 @@ function EventDetails() {
   const [wods, setWods] = useState([]);
   const [categories, setCategories] = useState([]);
   const [athletes, setAthletes] = useState([]);
+  const [athleteSearch, setAthleteSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
@@ -49,6 +50,7 @@ function EventDetails() {
   const fetchCategories = async () => {
     try {
       const eventCategories = await API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`);
+      console.log('Fetched categories with quotas:', eventCategories);
       setCategories(eventCategories || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -67,6 +69,45 @@ function EventDetails() {
       setAthletes([]);
       setLoading(false);
     }
+  };
+
+  const getAthletesByCategory = () => {
+    // Filter athletes by search term
+    const filteredAthletes = athletes.filter(athlete => {
+      const searchTerm = athleteSearch.toLowerCase();
+      const fullName = `${athlete.firstName} ${athlete.lastName}`.toLowerCase();
+      const alias = (athlete.alias || '').toLowerCase();
+      const email = (athlete.email || '').toLowerCase();
+      
+      return fullName.includes(searchTerm) || 
+             alias.includes(searchTerm) || 
+             email.includes(searchTerm);
+    });
+
+    // Group by category
+    const grouped = filteredAthletes.reduce((acc, athlete) => {
+      const categoryId = athlete.categoryId || 'uncategorized';
+      
+      if (!acc[categoryId]) {
+        const category = categories.find(c => c.categoryId === categoryId);
+        acc[categoryId] = {
+          name: category?.name || 'Uncategorized',
+          athletes: []
+        };
+      }
+      
+      acc[categoryId].athletes.push(athlete);
+      return acc;
+    }, {});
+
+    // Sort categories by name and athletes by name within each category
+    Object.keys(grouped).forEach(categoryId => {
+      grouped[categoryId].athletes.sort((a, b) => 
+        `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
+      );
+    });
+
+    return grouped;
   };
 
   const handleImageUpload = async (e) => {
@@ -120,7 +161,12 @@ function EventDetails() {
     }
   };
 
-  if (loading) return <div className="loading-spinner">Loading event details...</div>;
+  if (loading) return (
+    <div className="loading-container">
+      <div className="loading-spinner"></div>
+      <p>Loading event details...</p>
+    </div>
+  );
   if (!event) return <div className="error-message">Event not found</div>;
 
   return (
@@ -183,18 +229,59 @@ function EventDetails() {
             </div>
             <div className="info-row">
               <span className="label">Max Participants:</span>
-              <span className="value">{event.maxParticipants || 'Unlimited'}</span>
+              <span className="value">
+                {event.maxParticipants ? (
+                  <span className="quota-info">
+                    <span className="total-quota">{event.maxParticipants}</span>
+                    <span className="quota-separator"> | </span>
+                    <span className="available-quota">
+                      {event.maxParticipants - athletes.length} available
+                    </span>
+                    <span className="quota-percentage">
+                      ({Math.round((athletes.length / event.maxParticipants) * 100)}% full)
+                    </span>
+                  </span>
+                ) : (
+                  'Unlimited'
+                )}
+              </span>
             </div>
             <div className="info-row">
               <span className="label">Categories:</span>
               <span className="value">
                 {categories.length > 0 ? (
-                  <div className="categories-list">
-                    {categories.map(category => (
-                      <span key={category.categoryId} className="category-badge">
-                        {category.name}
-                      </span>
-                    ))}
+                  <div className="categories-with-quotas">
+                    {categories.map(category => {
+                      const categoryAthletes = athletes.filter(a => a.categoryId === category.categoryId);
+                      const categoryCount = categoryAthletes.length;
+                      const maxQuota = category.maxParticipants || null;
+                      
+                      console.log('Category quota display:', { 
+                        categoryId: category.categoryId, 
+                        name: category.name, 
+                        maxQuota, 
+                        categoryCount 
+                      });
+                      
+                      return (
+                        <div key={category.categoryId} className="category-quota-item">
+                          <span className="category-name">{category.name}</span>
+                          <span className="category-quota">
+                            <span className="registered-count">{categoryCount}</span>
+                            {maxQuota && (
+                              <>
+                                <span className="quota-separator"> / </span>
+                                <span className="max-quota">{maxQuota}</span>
+                                <span className="available-spots">
+                                  ({maxQuota - categoryCount} spots)
+                                </span>
+                              </>
+                            )}
+                            {!maxQuota && <span className="unlimited-quota"> (unlimited)</span>}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : 'No categories defined'}
               </span>
@@ -260,20 +347,54 @@ function EventDetails() {
           </div>
           <div className="card-body">
             {athletes.length > 0 ? (
-              <div className="athletes-list">
-                {athletes.map(athlete => (
-                  <div key={athlete.athleteId} className="athlete-item">
-                    <div className="athlete-info">
-                      <strong>{athlete.firstName} {athlete.lastName}</strong>
-                      <span className="division">{athlete.division}</span>
+              <div className="athletes-section">
+                <div className="athletes-search">
+                  <input
+                    type="text"
+                    placeholder="🔍 Search by name or alias..."
+                    value={athleteSearch}
+                    onChange={(e) => setAthleteSearch(e.target.value)}
+                    className="search-input"
+                  />
+                </div>
+                
+                <div className="athletes-by-category">
+                  {Object.entries(getAthletesByCategory()).map(([categoryId, categoryData]) => (
+                    <div key={categoryId} className="category-group">
+                      <div className="category-header">
+                        <h4 className="category-title">🏷️ {categoryData.name}</h4>
+                        <span className="category-count">{categoryData.athletes.length}</span>
+                      </div>
+                      <div className="athletes-grid">
+                        {categoryData.athletes.map(athlete => (
+                          <div key={athlete.athleteId} className="athlete-card">
+                            <div className="athlete-main">
+                              <div className="athlete-name">
+                                <strong>{athlete.firstName} {athlete.lastName}</strong>
+                                {athlete.alias && (
+                                  <span className="athlete-alias">"{athlete.alias}"</span>
+                                )}
+                              </div>
+                              <div className="athlete-email">{athlete.email}</div>
+                            </div>
+                            <div className="athlete-meta">
+                              {athlete.age && <span className="athlete-age">Age: {athlete.age}</span>}
+                              <span className="registration-date">
+                                {new Date(athlete.registrationDate || athlete.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <span className="email">{athlete.email}</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="empty-state">
-                <p>No athletes registered yet</p>
+                <div className="empty-icon">👥</div>
+                <h4>No Athletes Registered</h4>
+                <p>Athletes will appear here once they register for this event</p>
               </div>
             )}
           </div>
@@ -303,7 +424,37 @@ function EventDetails() {
           max-width: 1400px;
           margin: 0 auto;
         }
-        .loading-spinner, .error-message {
+        .loading-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          min-height: 400px;
+          text-align: center;
+        }
+        
+        .loading-spinner {
+          width: 40px;
+          height: 40px;
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid #667eea;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .loading-container p {
+          color: #666;
+          font-size: 16px;
+          margin: 0;
+        }
+        
+        .error-message {
           text-align: center;
           padding: 40px;
           font-size: 18px;
@@ -506,6 +657,85 @@ function EventDetails() {
           color: #333;
           text-align: right;
         }
+        
+        /* Quota Styling */
+        .quota-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        
+        .total-quota {
+          font-weight: 700;
+          color: #667eea;
+        }
+        
+        .quota-separator {
+          color: #999;
+        }
+        
+        .available-quota {
+          color: #28a745;
+          font-weight: 600;
+        }
+        
+        .quota-percentage {
+          color: #666;
+          font-size: 0.9em;
+          font-style: italic;
+        }
+        
+        /* Categories with Quotas */
+        .categories-with-quotas {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          text-align: left;
+        }
+        
+        .category-quota-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: #f8f9fa;
+          border-radius: 6px;
+          border-left: 3px solid #667eea;
+        }
+        
+        .category-name {
+          font-weight: 600;
+          color: #495057;
+        }
+        
+        .category-quota {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 0.9em;
+        }
+        
+        .registered-count {
+          font-weight: 700;
+          color: #667eea;
+        }
+        
+        .max-quota {
+          font-weight: 600;
+          color: #495057;
+        }
+        
+        .available-spots {
+          color: #28a745;
+          font-weight: 500;
+        }
+        
+        .unlimited-quota {
+          color: #6c757d;
+          font-style: italic;
+        }
         .description-section {
           margin-top: 20px;
           padding-top: 20px;
@@ -600,8 +830,161 @@ function EventDetails() {
           padding: 40px 20px;
           color: #999;
         }
+        .empty-state .empty-icon {
+          font-size: 48px;
+          margin-bottom: 16px;
+        }
+        .empty-state h4 {
+          color: #666;
+          margin-bottom: 8px;
+        }
         .empty-state p {
           margin-bottom: 20px;
+          color: #888;
+        }
+        
+        /* Enhanced Athletes Section */
+        .athletes-section {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        
+        .athletes-search {
+          margin-bottom: 12px;
+        }
+        
+        .search-input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 14px;
+        }
+        
+        .search-input:focus {
+          outline: none;
+          border-color: #007bff;
+        }
+        
+        .athletes-by-category {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          max-height: 500px;
+          overflow-y: auto;
+        }
+        
+        .category-group {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 6px;
+          padding: 12px;
+          border: 1px solid #667eea;
+        }
+        
+        .category-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 10px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .category-title {
+          margin: 0;
+          color: white !important;
+          background: transparent !important;
+          font-size: 14px;
+          font-weight: 600;
+        }
+        
+        .category-count {
+          background: rgba(255, 255, 255, 0.2);
+          color: white;
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        
+        .athletes-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 8px;
+        }
+        
+        .athlete-card {
+          background: white;
+          border: 1px solid #e9ecef;
+          border-radius: 4px;
+          padding: 10px;
+          font-size: 13px;
+        }
+        
+        .athlete-card:hover {
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .athlete-main {
+          margin-bottom: 6px;
+        }
+        
+        .athlete-name {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 4px;
+        }
+        
+        .athlete-name strong {
+          color: #333;
+          font-size: 14px;
+        }
+        
+        .athlete-alias {
+          background: #e8f0fe;
+          color: #667eea;
+          padding: 1px 6px;
+          border-radius: 8px;
+          font-size: 11px;
+          font-style: italic;
+        }
+        
+        .athlete-email {
+          color: #666;
+          font-size: 12px;
+        }
+        
+        .athlete-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 11px;
+          color: #888;
+          margin-top: 4px;
+        }
+        
+        .athlete-age {
+          background: #f8f9fa;
+          padding: 1px 4px;
+          border-radius: 3px;
+        }
+        
+        .registration-date {
+          font-style: italic;
+        }
+        
+        @media (max-width: 768px) {
+          .athletes-grid {
+            grid-template-columns: 1fr;
+          }
+          
+          .athlete-meta {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+          }
         }
         .btn-add {
           background: #28a745;

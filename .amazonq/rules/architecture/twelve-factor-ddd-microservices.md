@@ -29,6 +29,8 @@ Ensures ScorinGames platform follows Twelve Factor App principles, Domain-Driven
 - **Domain Services**: Implement domain logic in domain services, not in entities
 - **Repository Pattern**: Abstract data access through repositories (DynamoDB repositories)
 - **Domain Events**: Use events for cross-context communication (EventBridge integration)
+- **Context Isolation**: NEVER access tables outside your bounded context directly
+- **API-First Communication**: Cross-context data access MUST use APIs or EventBridge
 
 ### Microservices Design
 - **Single Responsibility**: Each service owns one business capability

@@ -9,6 +9,7 @@ function Analytics() {
   const [categories, setCategories] = useState([]);
   const [wods, setWods] = useState([]);
   const [allScores, setAllScores] = useState([]);
+  const [athleteRegistrations, setAthleteRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,29 +23,19 @@ function Analytics() {
     
     try {
       setLoading(true);
-      const [eventsData, athletesData, categoriesData, wodsData] = await Promise.all([
-        API.get('CalisthenicsAPI', `/competitions?organizationId=${selectedOrganization.organizationId}`),
-        API.get('CalisthenicsAPI', '/athletes'),
-        API.get('CalisthenicsAPI', '/categories'),
-        API.get('CalisthenicsAPI', '/wods')
-      ]);
       
-      setEvents(eventsData || []);
-      setAthletes(athletesData || []);
-      setCategories(categoriesData || []);
-      setWods(wodsData || []);
+      // Use new dedicated analytics endpoint
+      const analyticsData = await API.get('CalisthenicsAPI', `/analytics?organizationId=${selectedOrganization.organizationId}`);
       
-      // Fetch scores for all events
-      let scoresData = [];
-      for (const event of eventsData || []) {
-        try {
-          const eventScores = await API.get('CalisthenicsAPI', `/scores?eventId=${event.eventId}`);
-          scoresData = [...scoresData, ...(eventScores || [])];
-        } catch (error) {
-          console.error(`Error fetching scores for event ${event.eventId}:`, error);
-        }
-      }
-      setAllScores(scoresData);
+      setEvents(analyticsData.events || []);
+      setAthletes(analyticsData.athletes || []);
+      setCategories(analyticsData.categories || []);
+      setWods(analyticsData.wods || []);
+      setAllScores(analyticsData.scores || []);
+      setAthleteRegistrations(analyticsData.athleteRegistrations || []);
+      
+      console.log('Analytics Data Loaded:', analyticsData.stats);
+      
     } catch (error) {
       console.error('Error fetching analytics data:', error);
     } finally {
@@ -81,7 +72,7 @@ function Analytics() {
   const getWodFormatStats = () => {
     const formats = {};
     wods.forEach(wod => {
-      const format = wod.scoringType || 'Unknown';
+      const format = wod.format || 'Unknown';
       formats[format] = (formats[format] || 0) + 1;
     });
     return formats;
@@ -89,25 +80,27 @@ function Analytics() {
 
   const getTopPerformers = () => {
     const athleteScores = {};
+    
     allScores.forEach(score => {
-      if (!score || !score.athleteId) return;
+      if (!score?.athleteId || !score?.score) return;
       
-      // Extract actual athlete ID from composite ID (athleteId#workoutId)
-      const actualAthleteId = score.originalAthleteId || 
-        (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
+      // Use athleteId directly - no complex extraction needed
+      const athleteId = score.athleteId;
       
-      if (!athleteScores[actualAthleteId]) {
-        athleteScores[actualAthleteId] = {
+      if (!athleteScores[athleteId]) {
+        athleteScores[athleteId] = {
           totalScore: 0,
           count: 0,
-          athlete: athletes.find(a => a.athleteId === actualAthleteId)
+          athlete: athletes.find(a => a.athleteId === athleteId || a.userId === athleteId)
         };
       }
-      athleteScores[actualAthleteId].totalScore += score.score;
-      athleteScores[actualAthleteId].count += 1;
+      
+      athleteScores[athleteId].totalScore += parseFloat(score.score) || 0;
+      athleteScores[athleteId].count += 1;
     });
 
     return Object.values(athleteScores)
+      .filter(data => data.athlete && data.count > 0)
       .map(data => ({
         ...data,
         avgScore: data.totalScore / data.count
@@ -118,19 +111,21 @@ function Analytics() {
 
   const getEventParticipation = () => {
     return events.map(event => {
-      const eventScores = allScores.filter(score => score && score.eventId === event.eventId && score.athleteId);
-      // Extract actual athlete IDs and count unique participants
-      const uniqueAthletes = new Set(
-        eventScores.map(score => 
-          score.originalAthleteId || 
-          (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId)
-        )
-      ).size;
+      // Count registered athletes for this event
+      const eventRegistrations = athleteRegistrations.filter(reg => reg.eventId === event.eventId);
+      const participants = eventRegistrations.length;
+      
+      // Count scores for this event
+      const eventScores = allScores.filter(score => score?.eventId === event.eventId);
+      
+      // Count WODs for this event
+      const eventWods = wods.filter(wod => wod.eventId === event.eventId);
+      
       return {
         eventName: event.name,
-        participants: uniqueAthletes,
+        participants: participants,
         totalScores: eventScores.length,
-        wodCount: event.workouts?.length || 0
+        wodCount: eventWods.length
       };
     });
   };

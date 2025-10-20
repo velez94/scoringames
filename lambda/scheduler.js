@@ -20,6 +20,7 @@ class CompetitionScheduler {
       eventId,
       competitionMode: config.competitionMode,
       numberOfHeats: config.numberOfHeats,
+      categoryHeats: config.categoryHeats,
       athletesEliminatedPerFilter: config.athletesEliminatedPerFilter,
       heatWodMapping: config.heatWodMapping,
       wodsCount: config.wods?.length,
@@ -32,8 +33,11 @@ class CompetitionScheduler {
       maxDayHours = 10, lunchBreakHours = 1,
       competitionMode = 'HEATS', // HEATS, VERSUS, SIMULTANEOUS
       athletesPerHeat = 8,
-      numberOfHeats, // Required for VERSUS mode
-      athletesEliminatedPerFilter = 1, // How many athletes are eliminated per filter
+      numberOfHeats, // Global/default number of heats
+      categoryHeats = {}, // Category-specific number of heats: {categoryId: numberOfHeats}
+      athletesEliminatedPerFilter = 1, // How many athletes are eliminated per filter (legacy)
+      eliminationRules = [], // Legacy: Global elimination rules per filter
+      categoryEliminationRules = {}, // New: Category-specific elimination rules
       heatWodMapping = {}, // Maps heat numbers to WOD IDs for VERSUS mode
       startTime = '08:00',
       timezone = 'UTC',
@@ -113,18 +117,42 @@ class CompetitionScheduler {
 
     // Validate VERSUS mode requirements
     if (competitionMode === 'VERSUS') {
-      if (!numberOfHeats) {
-        throw new Error('numberOfHeats is required for VERSUS competition mode');
+      logger.info('Validating VERSUS mode requirements', {
+        categoryHeats: categoryHeats,
+        categoryHeatsKeys: categoryHeats ? Object.keys(categoryHeats) : 'null/undefined',
+        heatWodMapping: heatWodMapping,
+        heatWodMappingKeys: heatWodMapping ? Object.keys(heatWodMapping) : 'null/undefined'
+      });
+      
+      if (!categoryHeats || Object.keys(categoryHeats).length === 0) {
+        throw new Error(`categoryHeats is required for VERSUS competition mode. Received: ${JSON.stringify(categoryHeats)}`);
       }
       if (!heatWodMapping || Object.keys(heatWodMapping).length === 0) {
-        throw new Error('heatWodMapping is required for VERSUS competition mode');
+        throw new Error(`heatWodMapping is required for VERSUS competition mode. Received: ${JSON.stringify(heatWodMapping)}`);
+      }
+      // Validate that each category has WOD mappings for all its heats
+      for (const [categoryId, numberOfHeats] of Object.entries(categoryHeats)) {
+        const categoryMapping = heatWodMapping[categoryId];
+        if (!categoryMapping) {
+          throw new Error(`WOD mapping missing for category ${categoryId}`);
+        }
+        for (let heat = 1; heat <= numberOfHeats; heat++) {
+          if (!categoryMapping[heat]) {
+            throw new Error(`WOD mapping missing for category ${categoryId}, heat ${heat}`);
+          }
+        }
       }
     }
 
     const schedule = {
       eventId,
       scheduleId: `schedule-${Date.now()}`,
-      config: { maxDayHours, lunchBreakHours, competitionMode, athletesPerHeat, numberOfHeats, athletesEliminatedPerFilter, heatWodMapping, startTime, timezone, transitionTime, setupTime },
+      config: { 
+        maxDayHours, lunchBreakHours, competitionMode, athletesPerHeat, 
+        numberOfHeats, categoryHeats, athletesEliminatedPerFilter, 
+        eliminationRules, categoryEliminationRules, heatWodMapping, 
+        startTime, timezone, transitionTime, setupTime 
+      },
       days: [],
       totalDuration: 0,
       generatedAt: new Date().toISOString()
@@ -135,10 +163,13 @@ class CompetitionScheduler {
         dayId: day.dayId,
         wods: wods.filter(w => !w.dayId || w.dayId === day.dayId),
         categories, athletes, maxHours: maxDayHours, lunchBreak: lunchBreakHours,
-        competitionMode, athletesPerHeat, numberOfHeats, athletesEliminatedPerFilter, heatWodMapping, startTime, timezone, transitionTime, setupTime
+        competitionMode, athletesPerHeat, numberOfHeats, categoryHeats, athletesEliminatedPerFilter, eliminationRules, categoryEliminationRules, heatWodMapping, startTime, timezone, transitionTime, setupTime
       });
       schedule.days.push(daySchedule);
     }
+
+    // Calculate total duration from all days
+    schedule.totalDuration = schedule.days.reduce((total, day) => total + (day.totalDuration || 0), 0);
 
     // Save schedule to database (commented out for now)
     // await this.dynamodb.send(new PutCommand({
@@ -159,7 +190,7 @@ class CompetitionScheduler {
       heatWodMapping: config.heatWodMapping
     });
     
-    const { dayId, wods, categories, athletes, competitionMode, athletesPerHeat, numberOfHeats, athletesEliminatedPerFilter, heatWodMapping, startTime, timezone, transitionTime, setupTime } = config;
+    const { dayId, wods, categories, athletes, competitionMode, athletesPerHeat, numberOfHeats, categoryHeats, athletesEliminatedPerFilter, eliminationRules, categoryEliminationRules, heatWodMapping, startTime, timezone, transitionTime, setupTime } = config;
     
     const sessions = [];
     let currentTime = this.timeToMinutes(startTime);
@@ -182,11 +213,16 @@ class CompetitionScheduler {
           continue;
         }
         
-        for (let heatNumber = 1; heatNumber <= numberOfHeats; heatNumber++) {
-          const wodId = heatWodMapping[heatNumber];
+        // Get category-specific number of heats or use global default
+        const categoryNumberOfHeats = categoryHeats[category.categoryId] || numberOfHeats || 2;
+        
+        for (let heatNumber = 1; heatNumber <= categoryNumberOfHeats; heatNumber++) {
+          const categoryWodMapping = heatWodMapping[category.categoryId] || {};
+          const wodId = categoryWodMapping[heatNumber];
           const wod = wods.find(w => w.wodId === wodId);
           
           logger.info('Processing heat', {
+            categoryId: category.categoryId,
             heatNumber,
             wodId,
             wodFound: !!wod,
@@ -194,7 +230,11 @@ class CompetitionScheduler {
           });
           
           if (!wod) {
-            logger.warn('No WOD found for heat, skipping', { heatNumber, wodId });
+            logger.warn('No WOD found for heat, skipping', { 
+              categoryId: category.categoryId,
+              heatNumber, 
+              wodId 
+            });
             continue;
           }
           
@@ -216,18 +256,35 @@ class CompetitionScheduler {
             continue;
           }
           
-          // For 0 eliminations, use all athletes in each heat
-          // For eliminations > 0, use remaining athletes after eliminations
+          // For progressive tournament: pre-allocate all stages
           let athletesForHeat;
-          if (athletesEliminatedPerFilter === 0) {
-            // No eliminations - same athletes compete in all heats
-            athletesForHeat = categoryAthletes.slice(0, Math.min(2, categoryAthletes.length));
-            logger.info('No eliminations - using same athletes for all heats', { heatNumber });
+          if (heatNumber === 1) {
+            // First filter: All real athletes participate
+            athletesForHeat = categoryAthletes;
           } else {
-            // With eliminations - use remaining athletes
-            const startIndex = athletesEliminated;
-            athletesForHeat = categoryAthletes.slice(startIndex, startIndex + Math.min(2, remainingAthletes));
-            logger.info('With eliminations - using remaining athletes', { heatNumber, startIndex });
+            // Subsequent filters: Calculate advancing athletes based on category-specific elimination rules
+            const categoryRules = categoryEliminationRules[category.categoryId] || eliminationRules;
+            let expectedAdvancing;
+            
+            if (categoryRules && categoryRules.length > 0) {
+              // Use category-specific or global elimination rules
+              expectedAdvancing = this.calculateAdvancingAthletes(
+                categoryAthletes.length, 
+                categoryRules, 
+                heatNumber - 2
+              );
+            } else {
+              // Fallback to legacy calculation
+              expectedAdvancing = Math.ceil(categoryAthletes.length / Math.pow(2, heatNumber - 1));
+            }
+            
+            athletesForHeat = Array(expectedAdvancing).fill(null).map((_, i) => ({
+              userId: `TBD-${heatNumber}-${i + 1}`,
+              firstName: 'TBD',
+              lastName: `(Filter ${heatNumber - 1} Winner)`,
+              categoryId: category.categoryId,
+              status: 'pending'
+            }));
           }
           
           logger.info('Athletes selected for heat', {
@@ -240,7 +297,9 @@ class CompetitionScheduler {
             continue;
           }
           
-          const match = this.createSingleVersusMatch(athletesForHeat, heatNumber);
+          const matches = heatNumber === 1 ? 
+            this.createVersusMatches(athletesForHeat) : 
+            this.createVersusMatches(athletesForHeat); // TBD matches for later stages
           
           const session = {
             sessionId: `${dayId}-heat-${heatNumber}-${category.categoryId}`,
@@ -250,14 +309,14 @@ class CompetitionScheduler {
             categoryName: category.name,
             competitionMode: 'VERSUS',
             heatNumber,
-            numberOfHeats,
+            numberOfHeats: categoryNumberOfHeats,
             startTime: this.minutesToTime(currentTime),
             startTimeUTC: this.convertToUTC(this.minutesToTime(currentTime), timezone),
             endTime: this.minutesToTime(currentTime + (wod.estimatedDuration || 15)),
             duration: wod.estimatedDuration || 15,
-            matches: [match],
-            athleteCount: match.athlete2 ? 2 : 1,
-            athleteSchedule: this.generateAthleteSchedule([match], currentTime, wod.estimatedDuration || 15, timezone)
+            matches,
+            athleteCount: athletesForHeat.length,
+            athleteSchedule: this.generateAthleteSchedule(matches, currentTime, wod.estimatedDuration || 15, timezone)
           };
           
           logger.info('Session created', {
@@ -398,6 +457,26 @@ class CompetitionScheduler {
     return matches;
   }
 
+  // Calculate advancing athletes based on elimination rules
+  calculateAdvancingAthletes(totalAthletes, eliminationRules, upToFilter) {
+    let currentAthletes = totalAthletes;
+    
+    // Handle null or undefined elimination rules
+    const rules = eliminationRules || [];
+    
+    for (let i = 0; i <= upToFilter; i++) {
+      const rule = rules.find(r => r && r.filter === i + 1);
+      if (rule) {
+        currentAthletes = Math.max(1, currentAthletes - rule.eliminate + rule.wildcards);
+      } else {
+        // Fallback: eliminate half
+        currentAthletes = Math.ceil(currentAthletes / 2);
+      }
+    }
+    
+    return currentAthletes;
+  }
+
   // Generate athlete schedule for versus matches
   generateAthleteSchedule(matches, startTime, duration, timezone) {
     const schedule = [];
@@ -466,6 +545,31 @@ class CompetitionScheduler {
     }));
 
     return schedule;
+  }
+
+  async publishSchedule(eventId, scheduleId) {
+    await this.dynamodb.send(new UpdateCommand({
+      TableName: SCHEDULES_TABLE,
+      Key: { eventId, scheduleId },
+      UpdateExpression: 'SET published = :published, publishedAt = :publishedAt',
+      ExpressionAttributeValues: {
+        ':published': true,
+        ':publishedAt': new Date().toISOString()
+      }
+    }));
+    return { published: true };
+  }
+
+  async unpublishSchedule(eventId, scheduleId) {
+    await this.dynamodb.send(new UpdateCommand({
+      TableName: SCHEDULES_TABLE,
+      Key: { eventId, scheduleId },
+      UpdateExpression: 'SET published = :published REMOVE publishedAt',
+      ExpressionAttributeValues: {
+        ':published': false
+      }
+    }));
+    return { published: false };
   }
 
   async getSchedule(eventId, scheduleId) {
@@ -702,6 +806,21 @@ exports.handler = async (event) => {
         }
         break;
 
+      // Publish/unpublish schedule
+      case '/scheduler/{eventId}/{scheduleId}/publish':
+        if (httpMethod === 'POST') {
+          const result = await scheduler.publishSchedule(eventId, scheduleId);
+          return { statusCode: 200, headers, body: JSON.stringify(result) };
+        }
+        break;
+
+      case '/scheduler/{eventId}/{scheduleId}/unpublish':
+        if (httpMethod === 'POST') {
+          const result = await scheduler.unpublishSchedule(eventId, scheduleId);
+          return { statusCode: 200, headers, body: JSON.stringify(result) };
+        }
+        break;
+
       // CRUD operations on specific schedule
       case '/scheduler/{eventId}/{scheduleId}':
         if (httpMethod === 'GET') {
@@ -829,6 +948,19 @@ module.exports = {
           return { statusCode: 200, headers, body: JSON.stringify(schedules) };
         }
       } else if (eventId && scheduleId && scheduleId !== 'save') {
+        // Check for publish/unpublish actions
+        const action = pathParts[2]; // publish or unpublish
+        
+        if (action === 'publish' && httpMethod === 'POST') {
+          const result = await scheduler.publishSchedule(eventId, scheduleId);
+          return { statusCode: 200, headers, body: JSON.stringify(result) };
+        }
+        
+        if (action === 'unpublish' && httpMethod === 'POST') {
+          const result = await scheduler.unpublishSchedule(eventId, scheduleId);
+          return { statusCode: 200, headers, body: JSON.stringify(result) };
+        }
+        
         // /scheduler/{eventId}/{scheduleId}
         if (httpMethod === 'GET') {
           const schedule = await scheduler.getSchedule(eventId, scheduleId);

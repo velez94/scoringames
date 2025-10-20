@@ -1,3 +1,47 @@
+/* Scheduler Header */
+.scheduler-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.scheduler-header h2 {
+  color: #2c3e50;
+  margin: 0;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 10px;
+}
+
+.view-toggle button {
+  padding: 10px 16px;
+  border: 2px solid #3498db;
+  background: white;
+  color: #3498db;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.view-toggle button:hover {
+  background: #f8f9fa;
+}
+
+.view-toggle button.active {
+  background: #3498db;
+  color: white;
+}
+
+.advanced-scheduler {
+  margin-top: 20px;
+}
+
 .competition-scheduler {
   padding: 20px;
   max-width: 1200px;
@@ -111,9 +155,26 @@
   color: #333;
 }
 
+.schedule-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
 .schedule-date {
   font-size: 12px;
   color: #666;
+}
+
+.published-badge {
+  background: #28a745;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
 }
 
 .schedule-info p {
@@ -147,6 +208,12 @@
   font-size: 12px;
 }
 
+.btn-small {
+  padding: 4px 8px;
+  font-size: 11px;
+  margin: 0 2px;
+}
+
 .btn-save {
   background: #17a2b8;
   color: white;
@@ -155,6 +222,28 @@
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
+}
+
+.btn-publish {
+  background: #28a745;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 10px;
+}
+
+.btn-unpublish {
+  background: #ffc107;
+  color: #212529;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 10px;
 }
 
 .btn-save:disabled {
@@ -531,6 +620,32 @@
   background: #138496;
 }
 
+.btn-publish:hover:not(:disabled) {
+  background: #218838;
+}
+
+.btn-unpublish:hover:not(:disabled) {
+  background: #e0a800;
+}
+
+.save-first-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #fff3cd;
+  border: 2px solid #ffeaa7;
+  border-radius: 6px;
+  color: #856404;
+  font-weight: 600;
+  font-size: 14px;
+  margin-left: 10px;
+}
+
+.save-icon {
+  font-size: 16px;
+}
+
 .generate-btn:hover:not(:disabled) {
   background: #0056b3;
 }
@@ -709,6 +824,31 @@
   font-size: 1.1em;
 }
 
+/* Category Grouping Styles */
+.category-group {
+  margin-bottom: 25px;
+  padding: 15px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  border: 1px solid #e0e0e0;
+}
+
+.category-title {
+  margin: 0 0 15px 0;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+  font-size: 1.2em;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
 .match-summary-item {
   margin-bottom: 15px;
   padding: 10px;
@@ -749,4 +889,426 @@
   background: #e9ecef;
   padding: 4px 8px;
   border-radius: 4px;
+}
+/* Category Tournament Configuration */
+.category-tournament-config {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  background: #f9fafb;
+  max-width: 100%;
+  margin: 16px 0;
+}
+
+.category-config {
+  margin-bottom: 32px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.category-config h4 {
+  margin: 0 0 16px 0;
+  color: #6b46c1;
+  font-size: 18px;
+  font-weight: 600;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+.heats-config {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+
+.heats-config label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  color: #374151;
+  font-size: 14px;
+}
+
+.heats-config input {
+  width: 80px;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.heats-config input:focus {
+  outline: none;
+  border-color: #6b46c1;
+  box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.1);
+}
+
+.elimination-rules {
+  margin-bottom: 20px;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .rule-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .rule-row > span {
+    width: 100%;
+  }
+}
+
+.rule-row span {
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.rule-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.rule-row input {
+  width: 60px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.rule-row input:focus {
+  outline: none;
+  border-color: #6b46c1;
+  box-shadow: 0 0 0 2px rgba(107, 70, 193, 0.1);
+}
+
+.rule-row span:last-child {
+  color: #6b46c1;
+  font-weight: 600;
+  background: #ede9fe;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.wod-mapping {
+  margin-top: 32px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.wod-mapping h4 {
+  margin: 0 0 16px 0;
+  color: #374151;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+.mapping-row {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .mapping-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+.mapping-row label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  width: 100%;
+}
+
+.mapping-row select {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  min-width: 200px;
+  font-size: 14px;
+  background: white;
+  flex: 1;
+}
+
+.mapping-row select:focus {
+  outline: none;
+  border-color: #6b46c1;
+  box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.1);
+}
+
+/* Responsive improvements */
+@media (max-width: 1024px) {
+  .category-tournament-config {
+    padding: 16px;
+  }
+  
+  .category-config {
+    padding: 16px;
+  }
+  
+  .wod-mapping {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .category-tournament-config {
+    padding: 12px;
+    margin: 12px 0;
+  }
+  
+  .category-config {
+    padding: 12px;
+    margin-bottom: 20px;
+  }
+  
+  .category-config h4 {
+    font-size: 16px;
+  }
+  
+  .wod-mapping {
+    padding: 12px;
+    margin-top: 20px;
+  }
+  
+  .wod-mapping h4 {
+    font-size: 14px;
+  }
+  
+  .mapping-row select {
+    min-width: 100%;
+  }
+}
+
+/* Category-Specific Elimination Rules Configuration */
+.category-elimination-rules {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 16px;
+  background: #f9fafb;
+}
+
+.category-rules {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.category-rules h4 {
+  margin: 0 0 12px 0;
+  color: #6b46c1;
+  font-size: 16px;
+}
+
+.category-rules .rule-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 8px;
+  background: #f9fafb;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+/* Elimination Rules Configuration */
+.elimination-rules {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 16px;
+  background: #f9fafb;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.rule-row span {
+  font-weight: 500;
+  color: #374151;
+}
+
+.rule-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.rule-row input {
+  width: 50px;
+  padding: 4px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.rule-row span:last-child {
+  color: #6b46c1;
+  font-weight: 600;
+}
+
+/* Tournament Elimination Dialog */
+.elimination-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.elimination-dialog {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.elimination-dialog h3 {
+  color: #6b46c1;
+  margin-bottom: 16px;
+}
+
+.session-matches {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.session-matches h4 {
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.match-result {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 4px;
+}
+
+.match-info {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #6b46c1;
+}
+
+.athlete-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.athlete-selection label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.athlete-selection label:hover {
+  background: #f3f4f6;
+}
+
+.athlete-selection input[type="radio"]:checked + span {
+  font-weight: 600;
+  color: #6b46c1;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  background: white;
+  color: #374151;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-primary {
+  padding: 8px 16px;
+  border: none;
+  background: #6b46c1;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: #553c9a;
+}
+
+.btn-secondary:hover {
+  background: #f9fafb;
 }

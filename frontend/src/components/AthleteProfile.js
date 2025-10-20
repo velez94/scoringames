@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
 import AthleteLeaderboard from './AthleteLeaderboard';
+import AthleteScheduleViewer from './AthleteScheduleViewer';
 
 function AthleteProfile({ user, signOut }) {
   const [profile, setProfile] = useState(null);
@@ -14,6 +15,7 @@ function AthleteProfile({ user, signOut }) {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [registrations, setRegistrations] = useState([]);
+  const [selectedEventFilter, setSelectedEventFilter] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -300,6 +302,12 @@ function AthleteProfile({ user, signOut }) {
           onClick={() => setActiveTab('leaderboard')}
         >
           Leaderboard
+        </button>
+        <button 
+          className={activeTab === 'schedules' ? 'active' : ''} 
+          onClick={() => setActiveTab('schedules')}
+        >
+          Schedules
         </button>
       </nav>
 
@@ -662,6 +670,67 @@ function AthleteProfile({ user, signOut }) {
           <div className="leaderboard-tab">
             <h3>Competition Leaderboard</h3>
             <AthleteLeaderboard userProfile={profile} />
+          </div>
+        )}
+
+        {activeTab === 'schedules' && (
+          <div className="schedules-tab">
+            <h3>📅 Competition Schedules</h3>
+            {registrations.length > 0 ? (
+              <div className="registered-events-schedules">
+                {registrations.length > 1 && (
+                  <div className="event-filter-section">
+                    <div className="filter-header">
+                      <span className="filter-label">📋 Select Event:</span>
+                      <span className="events-count">({registrations.length} events)</span>
+                    </div>
+                    <div className="event-selector">
+                      <select 
+                        value={selectedEventFilter || 'all'} 
+                        onChange={(e) => setSelectedEventFilter(e.target.value === 'all' ? null : e.target.value)}
+                        className="event-filter-select"
+                      >
+                        <option value="all">🏆 All Events</option>
+                        {registrations.map((reg) => {
+                          const event = events.find(e => e.eventId === reg.eventId);
+                          return event ? (
+                            <option key={reg.eventId} value={reg.eventId}>
+                              📅 {event.name}
+                            </option>
+                          ) : null;
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                
+                {registrations
+                  .filter(reg => !selectedEventFilter || reg.eventId === selectedEventFilter)
+                  .map((reg) => {
+                    const event = events.find(e => e.eventId === reg.eventId);
+                    return event ? (
+                      <div key={reg.eventId} className="event-schedule-section">
+                        <div className="event-header">
+                          <h4>{event.name}</h4>
+                          <div className="event-meta">
+                            <span className="event-dates">
+                              {event.startDate && new Date(event.startDate).toLocaleDateString()} - 
+                              {event.endDate && new Date(event.endDate).toLocaleDateString()}
+                            </span>
+                            <span className="event-status">{event.status}</span>
+                          </div>
+                        </div>
+                        <AthleteScheduleViewer eventId={reg.eventId} />
+                      </div>
+                    ) : null;
+                  })}
+              </div>
+            ) : (
+              <div className="no-schedules">
+                <p>No registered competitions yet.</p>
+                <p>Register for events to view their schedules!</p>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -1371,6 +1440,71 @@ function AthleteProfile({ user, signOut }) {
           font-size: 14px;
           color: #999;
         }
+        .event-filter-section {
+          background: #f8f9fa;
+          padding: 15px 20px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          border: 1px solid #dee2e6;
+        }
+        .filter-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        .filter-label {
+          font-weight: 600;
+          color: #495057;
+        }
+        .events-count {
+          color: #6c757d;
+          font-size: 14px;
+        }
+        .event-filter-select {
+          width: 100%;
+          padding: 10px 15px;
+          border: 1px solid #ced4da;
+          border-radius: 6px;
+          background: white;
+          font-size: 16px;
+          color: #495057;
+        }
+        .event-filter-select:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        .event-schedule-section {
+          margin-bottom: 30px;
+          border: 1px solid #dee2e6;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .event-header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 20px;
+        }
+        .event-header h4 {
+          margin: 0 0 10px 0;
+          font-size: 20px;
+          font-weight: 600;
+          color: white;
+        }
+        .event-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 14px;
+          opacity: 0.9;
+        }
+        .event-status {
+          background: rgba(255,255,255,0.2);
+          padding: 4px 12px;
+          border-radius: 12px;
+          text-transform: capitalize;
+        }
         @media (max-width: 768px) {
           .event-card {
             overflow: hidden;
@@ -1395,6 +1529,35 @@ function AthleteProfile({ user, signOut }) {
           .register-btn {
             width: 100%;
             padding: 14px;
+          }
+          .event-filter-section {
+            margin: 0 -15px 20px -15px;
+            border-radius: 0;
+            padding: 15px;
+          }
+          .filter-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+          }
+          .event-filter-select {
+            font-size: 16px;
+            padding: 12px 15px;
+          }
+          .event-schedule-section {
+            margin: 0 -15px 20px -15px;
+            border-radius: 0;
+          }
+          .event-schedule-section .event-header {
+            padding: 15px;
+          }
+          .event-schedule-section .event-header h4 {
+            font-size: 18px;
+          }
+          .event-schedule-section .event-meta {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
           }
         }
       `}</style>

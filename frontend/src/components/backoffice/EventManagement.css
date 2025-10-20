@@ -409,3 +409,49 @@
   }
 }
 
+/* Category Quota Management */
+.category-item-with-quota {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.category-main-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.category-quota-settings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+}
+
+.category-quota-settings label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+  min-width: 200px;
+}
+
+.quota-input {
+  flex: 1;
+  max-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.quota-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+

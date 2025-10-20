@@ -411,6 +411,36 @@ export class CalisthenicsAppStack extends cdk.Stack {
     athletesTable.grantReadWriteData(usersLambda);
     athleteEventsTable.grantReadWriteData(usersLambda);
 
+    // Analytics service
+    const analyticsLambda = new lambda.Function(this, 'AnalyticsLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'analytics.handler',
+      code: lambda.Code.fromAsset('lambda'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: 5,
+      description: 'Analytics service with organization filtering - v1',
+      environment: {
+        ...commonEnv,
+        EVENTS_TABLE: eventsTable.tableName,
+        ATHLETES_TABLE: athletesTable.tableName,
+        ATHLETE_EVENTS_TABLE: athleteEventsTable.tableName,
+        CATEGORIES_TABLE: categoriesTable.tableName,
+        WODS_TABLE: wodsTable.tableName,
+        SCORES_TABLE: scoresTable.tableName,
+        ORGANIZATION_EVENTS_TABLE: organizationEventsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE: organizationMembersTable.tableName,
+      },
+    });
+    eventsTable.grantReadData(analyticsLambda);
+    athletesTable.grantReadData(analyticsLambda);
+    athleteEventsTable.grantReadData(analyticsLambda);
+    categoriesTable.grantReadData(analyticsLambda);
+    wodsTable.grantReadData(analyticsLambda);
+    scoresTable.grantReadData(analyticsLambda);
+    organizationEventsTable.grantReadData(analyticsLambda);
+    organizationMembersTable.grantReadData(analyticsLambda);
+
     // Sessions service
     const sessionsLambda = new lambda.Function(this, 'SessionsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
@@ -549,14 +579,14 @@ export class CalisthenicsAppStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(2)
     });
 
-    // Step Functions Scheduler Lambda
+    // DDD-Compliant Scheduler Lambda
     const schedulerLambda = new lambda.Function(this, 'SchedulerLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'scheduler-stepfunctions.handler',
       code: lambda.Code.fromAsset('lambda'),
-      memorySize: 256,
-      timeout: cdk.Duration.minutes(3),
-      description: 'Step Functions scheduler - microservices compliant - v3',
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      description: 'DDD-compliant Competition Scheduler Service - v8.0',
       environment: {
         ...commonEnv,
         SCHEDULES_TABLE: schedulesTable.tableName,
@@ -564,8 +594,34 @@ export class CalisthenicsAppStack extends cdk.Stack {
       },
     });
     
+    // Grant permissions to owned table (Schedule bounded context)
     schedulesTable.grantReadWriteData(schedulerLambda);
+    
+    // Grant Step Functions execution permission
     schedulerStateMachine.grantStartSyncExecution(schedulerLambda);
+    
+    // Grant EventBridge permissions for domain events
+    schedulerLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['events:PutEvents'],
+      resources: [`arn:aws:events:${this.region}:${this.account}:event-bus/default`]
+    }));
+
+    // Public Schedules Lambda for athlete access (uses DDD scheduler for published schedules)
+    const publicSchedulesLambda = new lambda.Function(this, 'PublicSchedulesLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'public-schedules-ddd.handler',
+      code: lambda.Code.fromAsset('lambda'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      description: 'Public schedules service for athlete access - DDD v2.0',
+      environment: {
+        ...commonEnv,
+        SCHEDULES_TABLE: schedulesTable.tableName,
+      },
+    });
+    
+    schedulesTable.grantReadData(publicSchedulesLambda);
 
     // EventBridge handlers for all domains
     const eventsEventBridgeHandler = new lambda.Function(this, 'EventsEventBridgeHandler', {
@@ -755,6 +811,12 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const publicEventsProxy = publicEvents.addResource('{proxy+}');
     publicEventsProxy.addMethod('GET', new apigateway.LambdaIntegration(competitionsLambda));
 
+    // Public endpoint for published schedules - /public/schedules (no auth required)
+    const publicSchedules = publicResource.addResource('schedules');
+    publicSchedules.addMethod('GET', new apigateway.LambdaIntegration(publicSchedulesLambda));
+    const publicSchedulesProxy = publicSchedules.addResource('{proxy+}');
+    publicSchedulesProxy.addMethod('GET', new apigateway.LambdaIntegration(publicSchedulesLambda));
+
     // Competitions microservice - /competitions/* (auth required)
     const competitions = api.root.addResource('competitions');
     competitions.addMethod('ANY', new apigateway.LambdaIntegration(competitionsLambda), { authorizer: cognitoAuthorizer });
@@ -822,6 +884,10 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const schedulerProxy = scheduler.addResource('{proxy+}');
     schedulerProxy.addMethod('ANY', new apigateway.LambdaIntegration(schedulerLambda), { authorizer: cognitoAuthorizer });
 
+    // Analytics microservice - /analytics/*
+    const analytics = api.root.addResource('analytics');
+    analytics.addMethod('GET', new apigateway.LambdaIntegration(analyticsLambda), { authorizer: cognitoAuthorizer });
+
     // Outputs
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
@@ -830,6 +896,17 @@ export class CalisthenicsAppStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'EventImagesBucketName', { value: eventImagesBucket.bucketName });
     new cdk.CfnOutput(this, 'FrontendBucketName', { value: websiteBucket.bucketName });
     new cdk.CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
+    
+    // DDD Scheduler outputs
+    new cdk.CfnOutput(this, 'DDDSchedulerLambdaArn', {
+      value: schedulerLambda.functionArn,
+      description: 'DDD-compliant Scheduler Lambda ARN'
+    });
+    new cdk.CfnOutput(this, 'SchedulerEndpoint', {
+      value: `${api.url}scheduler/`,
+      description: 'DDD Scheduler API endpoint'
+    });
+    
     new cdk.CfnOutput(this, 'FrontendConfig', {
       value: JSON.stringify({
         apiUrl: api.url,

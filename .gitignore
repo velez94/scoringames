@@ -4,6 +4,7 @@ node_modules/
 
 # CDK
 cdk.out/
+cdk-deploy.out/
 
 
 # Frontend build

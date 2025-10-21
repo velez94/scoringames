@@ -79,7 +79,7 @@ function Leaderboard() {
   const fetchScores = async () => {
     setLoading(true);
     try {
-      const response = await API.get('CalisthenicsAPI', `/scores?eventId=${selectedEvent.eventId}`);
+      const response = await API.get('CalisthenicsAPI', `/public/scores?eventId=${selectedEvent.eventId}`);
       setScores(response || []);
     } catch (error) {
       console.error('Error fetching scores:', error);

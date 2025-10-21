@@ -159,7 +159,7 @@ function AthleteProfile({ user, signOut }) {
       for (const event of events) {
         try {
           const [eventScores, eventWods] = await Promise.all([
-            API.get('CalisthenicsAPI', `/scores?eventId=${event.eventId}`),
+            API.get('CalisthenicsAPI', `/public/scores?eventId=${event.eventId}`),
             API.get('CalisthenicsAPI', `/wods?eventId=${event.eventId}`)
           ]);
           allScoresResponse = [...allScoresResponse, ...(eventScores || [])];

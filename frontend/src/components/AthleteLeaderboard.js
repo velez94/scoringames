@@ -11,6 +11,11 @@ function AthleteLeaderboard({ userProfile }) {
   const [allScores, setAllScores] = useState([]);
   const [wods, setWods] = useState([]);
   const [expandedCards, setExpandedCards] = useState({});
+  
+  // New tournament-related state
+  const [leaderboardType, setLeaderboardType] = useState('general'); // 'general', 'tournament', 'combined'
+  const [publishedSchedules, setPublishedSchedules] = useState([]);
+  const [selectedSchedule, setSelectedSchedule] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -26,6 +31,7 @@ function AthleteLeaderboard({ userProfile }) {
     if (selectedEvent) {
       fetchEventScores();
       fetchEventWods();
+      fetchPublishedSchedules(); // New: Load tournament schedules
       
       // Auto-refresh every 5 seconds, but only when tab is visible
       const interval = setInterval(() => {
@@ -60,9 +66,69 @@ function AthleteLeaderboard({ userProfile }) {
     }
   };
 
+  const fetchPublishedSchedules = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', `/scheduler/${selectedEvent.eventId}`);
+      const schedules = Array.isArray(response) ? response.filter(s => s.published) : [];
+      setPublishedSchedules(schedules);
+      
+      if (schedules.length > 0 && !selectedSchedule) {
+        setSelectedSchedule(schedules[0]);
+      }
+    } catch (error) {
+      console.error('Error fetching published schedules:', error);
+      setPublishedSchedules([]);
+    }
+  };
+
+  const fetchLeaderboard = async () => {
+    if (!selectedEvent) return;
+
+    try {
+      let endpoint;
+      let params = {};
+
+      switch (leaderboardType) {
+        case 'general':
+          endpoint = `/scores/leaderboard/${selectedEvent.eventId}`;
+          break;
+        case 'tournament':
+          if (!selectedSchedule) return;
+          endpoint = `/tournament-leaderboard/${selectedEvent.eventId}/${selectedSchedule.scheduleId}`;
+          break;
+        case 'combined':
+          if (!selectedSchedule) return;
+          endpoint = `/leaderboard-integration/${selectedEvent.eventId}/${selectedSchedule.scheduleId}`;
+          params = { type: 'combined' };
+          break;
+        default:
+          endpoint = `/scores/leaderboard/${selectedEvent.eventId}`;
+      }
+
+      const response = await API.get('CalisthenicsAPI', endpoint, {
+        queryStringParameters: params
+      });
+
+      setLeaderboard(response.leaderboard || []);
+    } catch (error) {
+      console.error('Error fetching leaderboard:', error);
+      setLeaderboard([]);
+    }
+  };
+
+  // Update existing useEffect to include leaderboard fetching
+  useEffect(() => {
+    if (selectedEvent) {
+      fetchEventScores();
+      fetchEventWods();
+      fetchPublishedSchedules();
+      fetchLeaderboard(); // New: Fetch appropriate leaderboard
+    }
+  }, [selectedEvent, leaderboardType, selectedSchedule]);
+
   const fetchEventScores = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', `/scores?eventId=${selectedEvent.eventId}`);
+      const response = await API.get('CalisthenicsAPI', `/public/scores?eventId=${selectedEvent.eventId}`);
       setAllScores(response || []);
     } catch (error) {
       console.error('Error fetching scores:', error);

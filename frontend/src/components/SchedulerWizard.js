@@ -238,7 +238,6 @@ const SchedulerWizard = ({ eventId, onScheduleGenerated }) => {
   return (
     <div className="scheduler-wizard">
       <div className="wizard-header">
-        <h2>Competition Scheduler</h2>
         <div className="step-indicator">
           {steps.map(step => (
             <div 

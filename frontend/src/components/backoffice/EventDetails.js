@@ -7,6 +7,11 @@ function EventDetails() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [selectedSchedule, setSelectedSchedule] = useState(null);
+  const [scheduleAthletes, setScheduleAthletes] = useState({});
+  const [scheduleCategories, setScheduleCategories] = useState({});
+  const [scheduleWods, setScheduleWods] = useState({});
+
   const [event, setEvent] = useState(null);
   const [eventDays, setEventDays] = useState([]);
   const [wods, setWods] = useState([]);
@@ -69,6 +74,131 @@ function EventDetails() {
       setAthletes([]);
       setLoading(false);
     }
+  };
+
+  const fetchScheduleDetails = async (schedule) => {
+    try {
+      // Fetch athletes, categories, and WODs for the schedule
+      const [athletesRes, categoriesRes, wodsRes] = await Promise.all([
+        API.get('CalisthenicsAPI', `/athletes?eventId=${eventId}`),
+        API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`),
+        API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`)
+      ]);
+
+      // Create lookup maps - try both userId and athleteId as keys
+      const athletesMap = {};
+      athletesRes.forEach(athlete => {
+        athletesMap[athlete.userId] = athlete;
+        athletesMap[athlete.athleteId] = athlete; // Also map by athleteId if different
+        // Handle case where schedule uses different ID format
+        if (athlete.firstName && athlete.lastName) {
+          athletesMap[`athlete-${athlete.userId}`] = athlete;
+        }
+      });
+
+      const categoriesMap = {};
+      categoriesRes.forEach(category => {
+        categoriesMap[category.categoryId] = category;
+      });
+
+      const wodsMap = {};
+      wodsRes.forEach(wod => {
+        wodsMap[wod.wodId] = wod;
+      });
+
+      console.log('Athletes loaded:', athletesRes.length, athletesMap);
+      console.log('Full schedule structure:', schedule);
+      console.log('Schedule days:', schedule.days);
+      
+      // Better debugging of schedule structure
+      if (schedule.days && schedule.days[0]) {
+        console.log('First day sessions:', schedule.days[0].sessions);
+        if (schedule.days[0].sessions && schedule.days[0].sessions[0]) {
+          console.log('First session:', schedule.days[0].sessions[0]);
+          console.log('First session heats:', schedule.days[0].sessions[0].heats);
+          console.log('First session matches:', schedule.days[0].sessions[0].matches);
+          console.log('First session athleteSchedule:', schedule.days[0].sessions[0].athleteSchedule);
+          if (schedule.days[0].sessions[0].matches && schedule.days[0].sessions[0].matches[0]) {
+            console.log('First match:', schedule.days[0].sessions[0].matches[0]);
+          }
+        }
+      }
+
+      setScheduleAthletes(athletesMap);
+      setScheduleCategories(categoriesMap);
+      setScheduleWods(wodsMap);
+      setSelectedSchedule(schedule);
+    } catch (error) {
+      console.error('Error fetching schedule details:', error);
+      setSelectedSchedule(schedule); // Show schedule even if details fail
+    }
+  };
+
+  const groupSessionsByCategory = (sessions) => {
+    const grouped = {};
+    sessions?.forEach(session => {
+      const categoryId = session.categoryId;
+      if (!grouped[categoryId]) {
+        grouped[categoryId] = [];
+      }
+      grouped[categoryId].push(session);
+    });
+    return grouped;
+  };
+
+  const getAthleteName = (athleteId) => {
+    // Try multiple lookup strategies
+    let athlete = scheduleAthletes[athleteId] || 
+                  scheduleAthletes[`athlete-${athleteId}`] ||
+                  scheduleAthletes[athleteId.replace('athlete-', '')];
+    
+    if (athlete && athlete.firstName && athlete.lastName) {
+      return `${athlete.firstName} ${athlete.lastName}`;
+    }
+    
+    // Fallback: try to find by partial match
+    const athleteEntries = Object.entries(scheduleAthletes);
+    for (const [key, athleteData] of athleteEntries) {
+      if (key.includes(athleteId) || athleteId.includes(key)) {
+        if (athleteData.firstName && athleteData.lastName) {
+          return `${athleteData.firstName} ${athleteData.lastName}`;
+        }
+      }
+    }
+    
+    return athleteId; // Fallback to ID
+  };
+
+  const getCategoryName = (categoryId) => {
+    const category = scheduleCategories[categoryId];
+    return category ? category.name : categoryId;
+  };
+
+  const getAthleteAlias = (athleteId) => {
+    const athlete = scheduleAthletes[athleteId] || 
+                    scheduleAthletes[`athlete-${athleteId}`] ||
+                    scheduleAthletes[athleteId.replace('athlete-', '')];
+    
+    if (athlete && athlete.alias) {
+      return athlete.alias;
+    }
+    
+    // Fallback: try to find by partial match
+    const athleteEntries = Object.entries(scheduleAthletes);
+    for (const [key, athleteData] of athleteEntries) {
+      if (key.includes(athleteId) || athleteId.includes(key)) {
+        if (athleteData.alias) {
+          return athleteData.alias;
+        }
+      }
+    }
+    
+    return athleteId; // Fallback to ID if no alias
+  };
+
+  const getWodName = (wodId) => {
+    const wod = scheduleWods[wodId];
+    return wod ? wod.name : wodId;
   };
 
   const getAthletesByCategory = () => {
@@ -411,7 +541,7 @@ function EventDetails() {
             <CompetitionScheduler 
               eventId={eventId}
               onScheduleGenerated={(schedule) => {
-                console.log('Schedule generated for event:', eventId, schedule);
+                fetchScheduleDetails(schedule);
               }}
             />
           </div>
@@ -871,45 +1001,101 @@ function EventDetails() {
           display: flex;
           flex-direction: column;
           gap: 16px;
-          max-height: 500px;
+          max-height: 600px;
           overflow-y: auto;
+          width: 100%;
+          padding: 10px;
+          box-sizing: border-box;
         }
         
         .category-group {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border-radius: 6px;
-          padding: 12px;
+          border-radius: 8px;
+          padding: 15px;
           border: 1px solid #667eea;
+          width: 100%;
+          box-sizing: border-box;
         }
         
         .category-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 10px;
-          padding-bottom: 6px;
+          margin-bottom: 12px;
+          padding-bottom: 8px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+          flex-wrap: wrap;
+          gap: 8px;
         }
         
         .category-title {
           margin: 0;
           color: white !important;
           background: transparent !important;
-          font-size: 14px;
+          font-size: 16px;
           font-weight: 600;
+          flex: 1;
+          min-width: 0;
         }
         
         .category-count {
           background: rgba(255, 255, 255, 0.2);
           color: white;
-          padding: 2px 8px;
-          border-radius: 12px;
+          padding: 4px 12px;
+          border-radius: 15px;
           font-size: 12px;
-          font-weight: 500;
+          font-weight: 600;
+          white-space: nowrap;
         }
         
         .athletes-grid {
           display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 12px;
+          width: 100%;
+        }
+        
+        @media (max-width: 768px) {
+          .athletes-by-category {
+            max-height: 400px;
+            padding: 5px;
+          }
+          
+          .category-group {
+            padding: 12px;
+          }
+          
+          .category-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+          }
+          
+          .category-title {
+            font-size: 14px;
+          }
+          
+          .athletes-grid {
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 8px;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .athletes-by-category {
+            max-height: 300px;
+            padding: 2px;
+          }
+          
+          .category-group {
+            padding: 10px;
+          }
+          
+          .athletes-grid {
+            grid-template-columns: 1fr;
+            gap: 6px;
+          }
+        }
           grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
           gap: 8px;
         }
@@ -1077,7 +1263,352 @@ function EventDetails() {
             font-size: 24px;
           }
         }
+        
+        .schedule-modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+        
+        .schedule-modal-content {
+          background: white;
+          border-radius: 8px;
+          width: 90%;
+          max-width: 800px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        
+        .schedule-modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 20px;
+          border-bottom: 1px solid #dee2e6;
+          background: #f8f9fa;
+          border-radius: 8px 8px 0 0;
+        }
+        
+        .schedule-modal-header h3 {
+          margin: 0;
+          color: #333;
+        }
+        
+        .close-btn {
+          background: none;
+          border: none;
+          font-size: 24px;
+          cursor: pointer;
+          color: #6c757d;
+          padding: 0;
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .close-btn:hover {
+          color: #333;
+        }
+        
+        .schedule-modal-body {
+          padding: 20px;
+        }
+        
+        .schedule-info {
+          margin-bottom: 20px;
+          padding: 15px;
+          background: #f8f9fa;
+          border-radius: 6px;
+        }
+        
+        .schedule-info p {
+          margin: 5px 0;
+          color: #495057;
+        }
+        
+        .day-section {
+          margin-bottom: 30px;
+          border: 1px solid #dee2e6;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .day-section h4 {
+          margin: 0;
+          padding: 20px;
+          background: linear-gradient(135deg, #007bff, #0056b3);
+          color: white;
+          font-size: 18px;
+          font-weight: 600;
+        }
+        
+        .category-section {
+          margin: 20px;
+          border: 1px solid #e9ecef;
+          border-radius: 8px;
+          background: #f8f9fa;
+        }
+        
+        .category-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 15px 20px;
+          background: linear-gradient(135deg, #28a745, #1e7e34);
+          color: white;
+          border-radius: 8px 8px 0 0;
+        }
+        
+        .category-header h5 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+        }
+        
+        .session-count {
+          background: rgba(255,255,255,0.2);
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        
+        .session-card {
+          margin: 15px;
+          border: 1px solid #dee2e6;
+          border-radius: 8px;
+          background: white;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .session-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 15px 20px;
+          background: #f8f9fa;
+          border-bottom: 1px solid #e9ecef;
+          border-radius: 8px 8px 0 0;
+        }
+        
+        .session-title h6 {
+          margin: 0 0 5px 0;
+          color: #333;
+          font-size: 16px;
+          font-weight: 600;
+        }
+        
+        .session-time {
+          color: #666;
+          font-size: 14px;
+          font-weight: 500;
+        }
+        
+        .session-stats {
+          display: flex;
+          gap: 15px;
+        }
+        
+        .heat-count, .athlete-count {
+          background: #e9ecef;
+          padding: 4px 10px;
+          border-radius: 15px;
+          font-size: 12px;
+          font-weight: 500;
+          color: #495057;
+        }
+        
+        .heats-container {
+          padding: 15px 20px;
+        }
+        
+        .heat-row {
+          display: flex;
+          align-items: center;
+          margin-bottom: 15px;
+          padding: 15px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border-left: 4px solid #007bff;
+        }
+        
+        .heat-row:last-child {
+          margin-bottom: 0;
+        }
+        
+        .heat-number {
+          margin-right: 20px;
+        }
+        
+        .heat-badge {
+          background: #007bff;
+          color: white;
+          padding: 6px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+        
+        .heat-matchup {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+          flex: 1;
+        }
+        
+        .athlete-card {
+          background: white;
+          border: 1px solid #dee2e6;
+          border-radius: 8px;
+          padding: 12px 16px;
+          min-width: 180px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .athlete-name {
+          font-weight: 600;
+          color: #333;
+          font-size: 14px;
+          margin-bottom: 4px;
+        }
+        
+        .athlete-id {
+          font-size: 12px;
+          color: #666;
+          font-weight: 500;
+        }
+        
+        .vs-divider {
+          background: #dc3545;
+          color: white;
+          padding: 8px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 700;
+          text-align: center;
+          min-width: 40px;
+        }
+        
+        .no-heats, .no-athletes {
+          text-align: center;
+          padding: 20px;
+          color: #6c757d;
+          font-style: italic;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border: 1px dashed #dee2e6;
+        }
+        }
       `}</style>
+
+      {/* Schedule Details Modal */}
+      {selectedSchedule && (
+        <div className="schedule-modal">
+          <div className="schedule-modal-content">
+            <div className="schedule-modal-header">
+              <h3>Schedule Details - {selectedSchedule.config?.competitionMode}</h3>
+              <button 
+                className="close-btn"
+                onClick={() => setSelectedSchedule(null)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="schedule-modal-body">
+              <div className="schedule-info">
+                <p><strong>Competition Mode:</strong> {selectedSchedule.config?.competitionMode}</p>
+                <p><strong>Created:</strong> {new Date(selectedSchedule.generatedAt).toLocaleString()}</p>
+                <p><strong>Status:</strong> {selectedSchedule.published ? 'Published' : 'Draft'}</p>
+                <p><strong>Total Days:</strong> {selectedSchedule.days?.length || 0}</p>
+              </div>
+              
+              {selectedSchedule.days?.map((day, dayIndex) => {
+                const groupedSessions = groupSessionsByCategory(day.sessions);
+                
+                return (
+                  <div key={day.dayId} className="day-section">
+                    <h4>📅 Day {dayIndex + 1} - {new Date(day.date).toLocaleDateString()}</h4>
+                    
+                    {Object.entries(groupedSessions).map(([categoryId, sessions]) => (
+                      <div key={categoryId} className="category-section">
+                        <div className="category-header">
+                          <h5>🏆 {getCategoryName(categoryId)}</h5>
+                          <span className="session-count">{sessions.length} session{sessions.length > 1 ? 's' : ''}</span>
+                        </div>
+                        
+                        {sessions.map((session, sessionIndex) => (
+                          <div key={session.sessionId} className="session-card">
+                            <div className="session-header">
+                              <div className="session-title">
+                                <h6>💪 {getWodName(session.wodId)}</h6>
+                                <span className="session-time">🕐 {session.startTime}</span>
+                              </div>
+                              <div className="session-stats">
+                                <span className="heat-count">
+                                  {session.matches?.length || 0} matches
+                                </span>
+                                <span className="athlete-count">
+                                  {session.athleteSchedule?.length || 0} athletes
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="heats-container">
+                              {session.matches && session.matches.length > 0 ? (
+                                session.matches.map((match, matchIndex) => (
+                                  <div key={match.matchId || matchIndex} className="heat-row">
+                                    <div className="heat-number">
+                                      <span className="heat-badge">Match {matchIndex + 1}</span>
+                                    </div>
+                                    <div className="heat-matchup">
+                                      {match.athlete1 && (
+                                        <div className="athlete-card">
+                                          <div className="athlete-name">
+                                            {getAthleteName(match.athlete1.userId || match.athlete1.athleteId || match.athlete1.id)}
+                                          </div>
+                                          <div className="athlete-id">Alias: {getAthleteAlias(match.athlete1.userId || match.athlete1.athleteId || match.athlete1.id)}</div>
+                                        </div>
+                                      )}
+                                      {match.athlete1 && match.athlete2 && (
+                                        <div className="vs-divider">VS</div>
+                                      )}
+                                      {match.athlete2 && (
+                                        <div className="athlete-card">
+                                          <div className="athlete-name">
+                                            {getAthleteName(match.athlete2.userId || match.athlete2.athleteId || match.athlete2.id)}
+                                          </div>
+                                          <div className="athlete-id">Alias: {getAthleteAlias(match.athlete2.userId || match.athlete2.athleteId || match.athlete2.id)}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="no-heats">No matches found for this session</div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

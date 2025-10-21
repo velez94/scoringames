@@ -1,12 +1,38 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { CognitoIdentityProviderClient, AdminGetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
 
 const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
+const cognito = new CognitoIdentityProviderClient({});
 
 const ORGANIZATIONS_TABLE = process.env.ORGANIZATIONS_TABLE;
 const ORGANIZATION_MEMBERS_TABLE = process.env.ORGANIZATION_MEMBERS_TABLE;
 const ORGANIZATION_EVENTS_TABLE = process.env.ORGANIZATION_EVENTS_TABLE;
+const USER_POOL_ID = process.env.USER_POOL_ID;
+
+async function getUserDetails(userId) {
+  try {
+    const response = await cognito.send(new AdminGetUserCommand({
+      UserPoolId: USER_POOL_ID,
+      Username: userId
+    }));
+    
+    const attributes = response.UserAttributes.reduce((acc, attr) => {
+      acc[attr.Name] = attr.Value;
+      return acc;
+    }, {});
+    
+    return {
+      email: attributes.email,
+      firstName: attributes.given_name || '',
+      lastName: attributes.family_name || ''
+    };
+  } catch (error) {
+    console.error('Error fetching user from Cognito:', error);
+    return { email: '', firstName: '', lastName: '' };
+  }
+}
 
 exports.handler = async (event) => {
   console.log('Organizations Service:', JSON.stringify(event, null, 2));
@@ -21,28 +47,44 @@ exports.handler = async (event) => {
   try {
     // GET /organizations - List user's organizations
     if (path === '/organizations' && method === 'GET') {
-      const { Items } = await ddb.send(new QueryCommand({
-        TableName: ORGANIZATION_MEMBERS_TABLE,
-        IndexName: 'user-organizations-index',
-        KeyConditionExpression: 'userId = :userId',
-        ExpressionAttributeValues: { ':userId': userId }
-      }));
-      
-      const orgs = await Promise.all(
-        (Items || []).map(async (membership) => {
-          const { Item } = await ddb.send(new GetCommand({
-            TableName: ORGANIZATIONS_TABLE,
-            Key: { organizationId: membership.organizationId }
-          }));
-          return { ...Item, role: membership.role };
-        })
-      );
-      
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(orgs.filter(o => o.organizationId))
-      };
+      if (isSuperAdmin) {
+        // Super admin gets all organizations
+        const { Items } = await ddb.send(new ScanCommand({
+          TableName: ORGANIZATIONS_TABLE
+        }));
+        
+        const orgs = Items.map(org => ({ ...org, role: 'super_admin' }));
+        
+        return {
+          statusCode: 200,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify(orgs)
+        };
+      } else {
+        // Regular users get their organizations
+        const { Items } = await ddb.send(new QueryCommand({
+          TableName: ORGANIZATION_MEMBERS_TABLE,
+          IndexName: 'user-organizations-index',
+          KeyConditionExpression: 'userId = :userId',
+          ExpressionAttributeValues: { ':userId': userId }
+        }));
+        
+        const orgs = await Promise.all(
+          (Items || []).map(async (membership) => {
+            const { Item } = await ddb.send(new GetCommand({
+              TableName: ORGANIZATIONS_TABLE,
+              Key: { organizationId: membership.organizationId }
+            }));
+            return { ...Item, role: membership.role };
+          })
+        );
+        
+        return {
+          statusCode: 200,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify(orgs.filter(o => o.organizationId))
+        };
+      }
     }
     
     // POST /organizations - Create organization
@@ -101,10 +143,24 @@ exports.handler = async (event) => {
         Key: { organizationId }
       }));
       
+      if (!org) {
+        return {
+          statusCode: 404,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({ message: 'Organization not found' })
+        };
+      }
+      
+      // Fetch creator details
+      const creatorDetails = await getUserDetails(org.createdBy);
+      const creatorName = creatorDetails.firstName && creatorDetails.lastName
+        ? `${creatorDetails.firstName} ${creatorDetails.lastName}`
+        : org.createdBy;
+      
       return {
-        statusCode: org ? 200 : 404,
+        statusCode: 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(org || { message: 'Organization not found' })
+        body: JSON.stringify({ ...org, creatorName })
       };
     }
     
@@ -171,10 +227,18 @@ exports.handler = async (event) => {
         ExpressionAttributeValues: { ':organizationId': organizationId }
       }));
       
+      // Fetch user details from Cognito for each member
+      const membersWithDetails = await Promise.all(
+        (Items || []).map(async (member) => {
+          const userDetails = await getUserDetails(member.userId);
+          return { ...member, ...userDetails };
+        })
+      );
+      
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(Items || [])
+        body: JSON.stringify(membersWithDetails)
       };
     }
     
@@ -273,6 +337,68 @@ exports.handler = async (event) => {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({ message: 'Member removed' })
+      };
+    }
+    
+    // DELETE /organizations/{id} - Delete organization
+    if (path.match(/^\/organizations\/[^/]+$/) && method === 'DELETE') {
+      const organizationId = path.split('/')[2];
+      
+      const { Item: membership } = await ddb.send(new GetCommand({
+        TableName: ORGANIZATION_MEMBERS_TABLE,
+        Key: { organizationId, userId }
+      }));
+      
+      if (!isSuperAdmin && (!membership || membership.role !== 'owner')) {
+        return {
+          statusCode: 403,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({ message: 'Only owners can delete organizations' })
+        };
+      }
+      
+      // Delete organization
+      await ddb.send(new DeleteCommand({
+        TableName: ORGANIZATIONS_TABLE,
+        Key: { organizationId }
+      }));
+      
+      // Delete all members
+      const { Items: members } = await ddb.send(new QueryCommand({
+        TableName: ORGANIZATION_MEMBERS_TABLE,
+        KeyConditionExpression: 'organizationId = :organizationId',
+        ExpressionAttributeValues: { ':organizationId': organizationId }
+      }));
+      
+      await Promise.all(
+        (members || []).map(member =>
+          ddb.send(new DeleteCommand({
+            TableName: ORGANIZATION_MEMBERS_TABLE,
+            Key: { organizationId, userId: member.userId }
+          }))
+        )
+      );
+      
+      // Delete organization-event links
+      const { Items: orgEvents } = await ddb.send(new QueryCommand({
+        TableName: ORGANIZATION_EVENTS_TABLE,
+        KeyConditionExpression: 'organizationId = :organizationId',
+        ExpressionAttributeValues: { ':organizationId': organizationId }
+      }));
+      
+      await Promise.all(
+        (orgEvents || []).map(orgEvent =>
+          ddb.send(new DeleteCommand({
+            TableName: ORGANIZATION_EVENTS_TABLE,
+            Key: { organizationId, eventId: orgEvent.eventId }
+          }))
+        )
+      );
+      
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ message: 'Organization deleted' })
       };
     }
     

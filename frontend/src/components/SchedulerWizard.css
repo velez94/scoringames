@@ -1,10 +1,12 @@
 .scheduler-wizard {
-  max-width: 1000px;
-  margin: 0 auto;
+  max-width: 100%;
+  width: 100%;
+  margin: 0;
   padding: 20px;
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
 }
 
 .wizard-header {
@@ -15,13 +17,16 @@
 .wizard-header h2 {
   color: #2c3e50;
   margin-bottom: 20px;
+  font-size: 24px;
 }
 
 .step-indicator {
   display: flex;
   justify-content: center;
-  gap: 20px;
+  gap: 15px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
+  padding: 0 10px;
 }
 
 .step {
@@ -32,6 +37,8 @@
   border-radius: 8px;
   background: #f8f9fa;
   min-width: 120px;
+  max-width: 180px;
+  flex: 1;
   transition: all 0.3s ease;
 }
 
@@ -59,10 +66,79 @@
 
 .wizard-content {
   min-height: 400px;
-  padding: 20px;
+  padding: 30px 40px;
   background: #fafbfc;
   border-radius: 8px;
   margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .scheduler-wizard {
+    padding: 15px;
+  }
+  
+  .wizard-header h2 {
+    font-size: 20px;
+  }
+  
+  .step-indicator {
+    gap: 10px;
+    padding: 0 5px;
+  }
+  
+  .step {
+    min-width: 80px;
+    max-width: 120px;
+    padding: 10px;
+  }
+  
+  .step-icon {
+    font-size: 20px;
+  }
+  
+  .step-title {
+    font-size: 11px;
+  }
+  
+  .wizard-content {
+    padding: 20px 15px;
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .scheduler-wizard {
+    padding: 10px;
+  }
+  
+  .wizard-header h2 {
+    font-size: 18px;
+  }
+  
+  .step-indicator {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .step {
+    min-width: auto;
+    max-width: 100%;
+    flex-direction: row;
+    justify-content: center;
+    padding: 12px 20px;
+  }
+  
+  .step-icon {
+    margin-bottom: 0;
+    margin-right: 8px;
+    font-size: 18px;
+  }
+  
+  .wizard-content {
+    padding: 15px 10px;
+  }
 }
 
 .step-content h3 {

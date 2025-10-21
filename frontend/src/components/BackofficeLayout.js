@@ -10,6 +10,7 @@ import ScoreEntry from './backoffice/ScoreEntry';
 import Leaderboard from './backoffice/Leaderboard';
 import Analytics from './backoffice/Analytics';
 import AdminProfile from './backoffice/AdminProfile';
+import OrganizationManagement from './backoffice/OrganizationManagement';
 import { getOrganizerRole, ROLE_LABELS, hasPermission, PERMISSIONS } from '../utils/organizerRoles';
 
 function BackofficeLayout({ user, signOut }) {
@@ -68,6 +69,12 @@ function BackofficeLayout({ user, signOut }) {
           </div>
         </div>
         <div className="nav-links">
+          {(organizerRole === 'super_admin' || organizerRole === 'owner' || organizerRole === 'admin') && (
+            <Link to="/backoffice/organization" className={isActive('/backoffice/organization') ? 'active' : ''}>
+              <span className="nav-icon">🏢</span>
+              <span className="nav-text">Organization</span>
+            </Link>
+          )}
           {hasPermission(organizerRole, PERMISSIONS.MANAGE_EVENTS) && (
             <Link to="/backoffice/events" className={isActive('/backoffice/events') ? 'active' : ''}>
               <span className="nav-icon">📅</span>
@@ -125,6 +132,8 @@ function BackofficeLayout({ user, signOut }) {
           <Route path="/backoffice/scores" element={<ScoreEntry />} />
           <Route path="/backoffice/leaderboard" element={<Leaderboard />} />
           <Route path="/backoffice/analytics" element={<Analytics />} />
+          <Route path="/backoffice/organization/:organizationId" element={<OrganizationManagement />} />
+          <Route path="/backoffice/organization" element={<OrganizationManagement />} />
           <Route path="/admin-profile" element={<AdminProfile user={user} signOut={signOut} />} />
           <Route path="/backoffice" element={<EventManagement />} />
           <Route path="*" element={<EventManagement />} />

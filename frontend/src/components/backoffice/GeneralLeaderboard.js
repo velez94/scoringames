@@ -77,7 +77,7 @@ function GeneralLeaderboard() {
 
   const fetchEventScores = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', `/scores?eventId=${selectedEvent.eventId}`);
+      const response = await API.get('CalisthenicsAPI', `/public/scores?eventId=${selectedEvent.eventId}`);
       setAllScores(response || []);
       calculateGeneralLeaderboard(response || []);
     } catch (error) {

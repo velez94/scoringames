@@ -296,6 +296,12 @@ export class CalisthenicsAppStack extends cdk.Stack {
     organizationsTable.grantReadWriteData(organizationsLambda);
     organizationMembersTable.grantReadWriteData(organizationsLambda);
     organizationEventsTable.grantReadWriteData(organizationsLambda);
+    
+    // Grant Cognito permissions to fetch user details
+    organizationsLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['cognito-idp:AdminGetUser'],
+      resources: [userPool.userPoolArn]
+    }));
 
     // Competitions service - Handles competitions and public events endpoints
     const competitionsLambda = new lambda.Function(this, 'CompetitionsLambda', {
@@ -347,7 +353,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
       code: lambda.Code.fromAsset('lambda'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
-      description: 'Scores service with query parameter support - v2',
+      description: 'Scores service with direct POST /scores endpoint - v3',
       environment: {
         ...commonEnv,
         SCORES_TABLE: scoresTable.tableName,
@@ -816,6 +822,10 @@ export class CalisthenicsAppStack extends cdk.Stack {
     publicSchedules.addMethod('GET', new apigateway.LambdaIntegration(publicSchedulesLambda));
     const publicSchedulesProxy = publicSchedules.addResource('{proxy+}');
     publicSchedulesProxy.addMethod('GET', new apigateway.LambdaIntegration(publicSchedulesLambda));
+
+    // Public endpoint for scores - /public/scores (no auth required)
+    const publicScores = publicResource.addResource('scores');
+    publicScores.addMethod('GET', new apigateway.LambdaIntegration(scoresLambda));
 
     // Competitions microservice - /competitions/* (auth required)
     const competitions = api.root.addResource('competitions');

@@ -55,7 +55,12 @@ function AthleteManagement() {
           console.log(`Athletes found for ${event.eventId}:`, eventAthletes?.length || 0);
           
           if (eventAthletes && eventAthletes.length > 0) {
-            allAthletes.push(...eventAthletes);
+            // Ensure each athlete has the correct eventId
+            const athletesWithEventId = eventAthletes.map(athlete => ({
+              ...athlete,
+              eventId: event.eventId // Ensure eventId is set
+            }));
+            allAthletes.push(...athletesWithEventId);
           }
         } catch (error) {
           // Skip events that fail (deleted, unauthorized, etc.)
@@ -113,6 +118,17 @@ function AthleteManagement() {
       console.log('Fetching categories for events:', events);
       // Get categories for all events, but skip events that return 403/404
       const allCategories = [];
+      
+      // First, fetch global categories
+      try {
+        console.log('Fetching global categories...');
+        const globalCategories = await API.get('CalisthenicsAPI', '/categories?eventId=global');
+        console.log('Global categories found:', globalCategories?.length || 0, globalCategories);
+        allCategories.push(...(globalCategories || []));
+      } catch (error) {
+        console.warn('No global categories or error fetching:', error.response?.status);
+      }
+      
       for (const event of events) {
         try {
           console.log(`Fetching categories for event: ${event.eventId}`);
@@ -128,8 +144,18 @@ function AthleteManagement() {
           console.error(`Error fetching categories for event ${event.eventId}:`, error);
         }
       }
-      console.log('Total categories loaded:', allCategories.length, allCategories);
-      setCategories(allCategories);
+      
+      // Deduplicate categories by categoryId
+      const uniqueCategories = allCategories.reduce((acc, category) => {
+        if (!acc.find(c => c.categoryId === category.categoryId)) {
+          acc.push(category);
+        }
+        return acc;
+      }, []);
+      
+      console.log('Total categories loaded:', uniqueCategories.length, uniqueCategories);
+      console.log('Category IDs loaded:', uniqueCategories.map(c => c.categoryId));
+      setCategories(uniqueCategories);
     } catch (error) {
       console.error('Error fetching categories:', error);
       setCategories([]);
@@ -338,23 +364,25 @@ function AthleteManagement() {
     
     const matchesCategory = !filterCategory || athlete.categoryId === filterCategory;
     
-    // Fix: Check both direct eventId and events array
+    // Simplified event matching - check if athlete is associated with the filtered event
     const matchesEvent = !filterEvent || 
                         athlete.eventId === filterEvent || 
                         (athlete.events && athlete.events.some(e => e.eventId === filterEvent));
     
-    console.log('Filtering athlete:', {
-      name: fullName,
-      eventId: athlete.eventId,
-      events: athlete.events,
-      eventsDetail: athlete.events?.map(e => ({ eventId: e.eventId, eventName: e.eventName })),
-      eventsRaw: JSON.stringify(athlete.events),
-      filterEvent,
-      matchesSearch,
-      matchesCategory,
-      matchesEvent,
-      finalResult: matchesSearch && matchesCategory && matchesEvent
-    });
+    // Debug logging for filtering issues
+    if (filterEvent || filterCategory) {
+      console.log('Filter debug:', {
+        athlete: fullName,
+        athleteCategoryId: athlete.categoryId,
+        filterCategory,
+        matchesCategory,
+        athleteEventId: athlete.eventId,
+        athleteEvents: athlete.events?.map(e => e.eventId),
+        filterEvent,
+        matchesEvent,
+        finalMatch: matchesSearch && matchesCategory && matchesEvent
+      });
+    }
     
     return matchesSearch && matchesCategory && matchesEvent;
   });
@@ -443,7 +471,17 @@ function AthleteManagement() {
                     <td>{athlete.age || '-'}</td>
                     <td>
                       <span className="category-badge">
-                        {categories.find(c => c.categoryId === athlete.categoryId)?.name || 'Not assigned'}
+                        {(() => {
+                          const category = categories.find(c => c.categoryId === athlete.categoryId);
+                          if (!category && athlete.categoryId) {
+                            console.log('Category not found:', {
+                              athleteName: `${athlete.firstName} ${athlete.lastName}`,
+                              athleteCategoryId: athlete.categoryId,
+                              availableCategories: categories.map(c => ({ id: c.categoryId, name: c.name, eventId: c.eventId }))
+                            });
+                          }
+                          return category?.name || athlete.categoryId || 'Not assigned';
+                        })()}
                       </span>
                     </td>
                     <td>

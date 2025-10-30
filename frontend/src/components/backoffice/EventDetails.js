@@ -20,6 +20,8 @@ function EventDetails() {
   const [athletes, setAthletes] = useState([]);
   const [exercises, setExercises] = useState([]);
   const [athleteSearch, setAthleteSearch] = useState('');
+  const [wodSearch, setWodSearch] = useState('');
+  const [wodFormatFilter, setWodFormatFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
@@ -300,6 +302,17 @@ function EventDetails() {
   const getWodName = (wodId) => {
     const wod = scheduleWods[wodId];
     return wod ? wod.name : wodId;
+  };
+
+  const getFilteredWods = () => {
+    return wods.filter(wod => {
+      const searchTerm = wodSearch.toLowerCase();
+      const nameMatch = wod.name?.toLowerCase().includes(searchTerm);
+      const descMatch = wod.description?.toLowerCase().includes(searchTerm);
+      const formatMatch = !wodFormatFilter || wod.format === wodFormatFilter;
+      
+      return (nameMatch || descMatch) && formatMatch;
+    });
   };
 
   const getAthletesByCategory = () => {
@@ -653,54 +666,82 @@ function EventDetails() {
         <div className="info-card">
           <div className="card-header">
             <h3>💪 Workouts</h3>
-            <span className="count-badge">{wods.length}</span>
+            <span className="count-badge">{getFilteredWods().length}</span>
           </div>
           <div className="card-body">
             {wods.length > 0 ? (
-              <div className="wods-grid">
-                {wods.map((wod, index) => {
-                  const scoreData = calculateWodMaxScore(wod);
-                  return (
-                  <div key={wod.wodId || index} className="wod-card">
-                    <div className="wod-header">
-                      <h4>{wod.name}</h4>
-                      <span className="wod-format">{wod.format}</span>
-                    </div>
-                    {scoreData && (
-                      <div style={{
-                        padding: '10px 12px',
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        color: 'white',
-                        borderRadius: '6px',
-                        marginBottom: '10px',
-                        fontSize: '12px'
-                      }}>
-                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                          <div>
-                            <div style={{opacity: 0.85, fontSize: '11px', marginBottom: '2px'}}>Max Score (Perfect EQS)</div>
-                            <div style={{fontSize: '20px', fontWeight: 'bold'}}>{scoreData.maxScore} pts</div>
-                          </div>
-                          <div style={{textAlign: 'right', fontSize: '11px', opacity: 0.9}}>
-                            <div>EDS: {scoreData.totalEDS} × 5</div>
-                            <div>Bonus: +{scoreData.timeBonus}</div>
-                          </div>
-                        </div>
+              <>
+                <div className="wods-filters">
+                  <input
+                    type="text"
+                    placeholder="🔍 Search workouts..."
+                    value={wodSearch}
+                    onChange={(e) => setWodSearch(e.target.value)}
+                    className="search-input"
+                  />
+                  <select
+                    value={wodFormatFilter}
+                    onChange={(e) => setWodFormatFilter(e.target.value)}
+                    className="format-filter"
+                  >
+                    <option value="">All Formats</option>
+                    <option value="time">Time</option>
+                    <option value="reps">Reps</option>
+                    <option value="weight">Weight</option>
+                    <option value="ladder">Ladder</option>
+                    <option value="amrap">AMRAP</option>
+                  </select>
+                </div>
+                <div className="wods-grid">
+                  {getFilteredWods().map((wod, index) => {
+                    const scoreData = calculateWodMaxScore(wod);
+                    return (
+                    <div key={wod.wodId || index} className="wod-card">
+                      <div className="wod-header">
+                        <h4>{wod.name}</h4>
+                        <span className="wod-format">{wod.format}</span>
                       </div>
-                    )}
-                    {wod.timeLimit && <p className="time-limit">⏱️ {wod.timeLimit}</p>}
-                    <div className="movements">
-                      {wod.movements?.map((movement, i) => (
-                        <div key={i} className="movement">
-                          <span className="reps">{movement.reps}</span>
-                          <span className="exercise">{movement.exercise}</span>
-                          {movement.weight && <span className="weight">{movement.weight}</span>}
+                      {scoreData && (
+                        <div style={{
+                          padding: '10px 12px',
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          color: 'white',
+                          borderRadius: '6px',
+                          marginBottom: '10px',
+                          fontSize: '12px'
+                        }}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <div>
+                              <div style={{opacity: 0.85, fontSize: '11px', marginBottom: '2px'}}>Max Score (Perfect EQS)</div>
+                              <div style={{fontSize: '20px', fontWeight: 'bold'}}>{scoreData.maxScore} pts</div>
+                            </div>
+                            <div style={{textAlign: 'right', fontSize: '11px', opacity: 0.9}}>
+                              <div>EDS: {scoreData.totalEDS} × 5</div>
+                              <div>Bonus: +{scoreData.timeBonus}</div>
+                            </div>
+                          </div>
                         </div>
-                      ))}
+                      )}
+                      {wod.timeLimit && <p className="time-limit">⏱️ {wod.timeLimit}</p>}
+                      <div className="movements">
+                        {wod.movements?.map((movement, i) => (
+                          <div key={i} className="movement">
+                            <span className="reps">{movement.reps}</span>
+                            <span className="exercise">{movement.exercise}</span>
+                            {movement.weight && <span className="weight">{movement.weight}</span>}
+                          </div>
+                        ))}
+                      </div>
+                      {wod.description && <p className="wod-description">{wod.description}</p>}
                     </div>
-                    {wod.description && <p className="wod-description">{wod.description}</p>}
+                  )})}
+                </div>
+                {getFilteredWods().length === 0 && (
+                  <div className="no-results">
+                    <p>No workouts match your search criteria</p>
                   </div>
-                )})}
-              </div>
+                )}
+              </>
             ) : (
               <div className="empty-state">
                 <p>No workouts added yet</p>
@@ -1318,6 +1359,34 @@ function EventDetails() {
         .search-input:focus {
           outline: none;
           border-color: #007bff;
+        }
+        
+        .wods-filters {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 16px;
+          align-items: center;
+        }
+        
+        .format-filter {
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 14px;
+          background: white;
+          min-width: 140px;
+        }
+        
+        .format-filter:focus {
+          outline: none;
+          border-color: #007bff;
+        }
+        
+        .no-results {
+          text-align: center;
+          padding: 20px;
+          color: #666;
+          font-style: italic;
         }
         
         .athletes-by-category {

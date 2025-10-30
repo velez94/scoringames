@@ -6,7 +6,7 @@ Multi-tenant competition management platform with role-based access control (RBA
 
 ### User Roles
 
-1. **Super Admin** (`admin@scoringames.com`)
+1. **Super Admin** (`admin@athleon.fitness`)
    - Full system access
    - Can view all organizations and events
    - Bypass organization membership checks
@@ -461,7 +461,7 @@ aws cloudfront create-invalidation --distribution-id E1MZ3OMBI2NDM3 --paths "/*"
 
 ## Testing Accounts
 
-- **Super Admin**: admin@scoringames.com
+- **Super Admin**: admin@athleon.fitness
 - **Organizer 1**: organizer1@test.com (owner of "organizer1's Organization")
 - **Organizer 2**: organizer2@test.com (owner of "organizer2's Organization")
 - **Admin User**: avelez@labvel.io (admin of "organizer1's Organization")

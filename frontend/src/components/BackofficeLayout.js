@@ -11,14 +11,48 @@ import Leaderboard from './backoffice/Leaderboard';
 import Analytics from './backoffice/Analytics';
 import AdminProfile from './backoffice/AdminProfile';
 import OrganizationManagement from './backoffice/OrganizationManagement';
+import ExerciseLibraryManager from './backoffice/ExerciseLibraryManager';
+import AuthorizationAdmin from './backoffice/AuthorizationAdmin';
 import { getOrganizerRole, ROLE_LABELS, hasPermission, PERMISSIONS } from '../utils/organizerRoles';
 
 function BackofficeLayout({ user, signOut }) {
   const location = useLocation();
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  React.useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    
+    // Prevent flash of unstyled content
+    const timer = setTimeout(() => setIsLoading(false), 100);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, []);
   
   const organizerRole = getOrganizerRole(user);
   const roleLabel = ROLE_LABELS[organizerRole] || 'Organizer';
+  
+  // Show loading screen to prevent flash
+  if (isLoading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        background: '#ecf0f1'
+      }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
   
   const isActive = (path) => location.pathname === path;
   
@@ -49,7 +83,7 @@ function BackofficeLayout({ user, signOut }) {
       </button>
       
       {/* Mobile overlay */}
-      {sidebarVisible && (
+      {sidebarVisible && isMobile && (
         <div className="mobile-overlay" onClick={() => setSidebarVisible(false)}></div>
       )}
       
@@ -99,6 +133,18 @@ function BackofficeLayout({ user, signOut }) {
               <span className="nav-text">WODs</span>
             </Link>
           )}
+          {hasPermission(organizerRole, PERMISSIONS.MANAGE_WODS) && (
+            <Link to="/backoffice/exercises" className={isActive('/backoffice/exercises') ? 'active' : ''}>
+              <span className="nav-icon">🏋️</span>
+              <span className="nav-text">Exercise Library</span>
+            </Link>
+          )}
+          {(user?.email === 'admin@athleon.fitness' || user?.attributes?.email === 'admin@athleon.fitness') && (
+            <Link to="/backoffice/authorization" className={isActive('/backoffice/authorization') ? 'active' : ''}>
+              <span className="nav-icon">🔐</span>
+              <span className="nav-text">Authorization Admin</span>
+            </Link>
+          )}
           {hasPermission(organizerRole, PERMISSIONS.ENTER_SCORES) && (
             <Link to="/backoffice/scores" className={isActive('/backoffice/scores') ? 'active' : ''}>
               <span className="nav-icon">📝</span>
@@ -123,19 +169,22 @@ function BackofficeLayout({ user, signOut }) {
 
       <main className={`backoffice-content ${sidebarVisible ? 'sidebar-open' : ''}`}>
         <Routes>
-          <Route path="/backoffice/events/:eventId/edit" element={<EventEdit />} />
-          <Route path="/backoffice/events/:eventId" element={<EventDetails />} />
-          <Route path="/backoffice/events" element={<EventManagement />} />
-          <Route path="/backoffice/athletes" element={<AthleteManagement />} />
-          <Route path="/backoffice/categories" element={<CategoryManagement />} />
-          <Route path="/backoffice/wods" element={<WODManagement />} />
-          <Route path="/backoffice/scores" element={<ScoreEntry />} />
-          <Route path="/backoffice/leaderboard" element={<Leaderboard />} />
-          <Route path="/backoffice/analytics" element={<Analytics />} />
-          <Route path="/backoffice/organization/:organizationId" element={<OrganizationManagement />} />
-          <Route path="/backoffice/organization" element={<OrganizationManagement />} />
-          <Route path="/admin-profile" element={<AdminProfile user={user} signOut={signOut} />} />
-          <Route path="/backoffice" element={<EventManagement />} />
+          <Route path="events/:eventId/schedule/:scheduleId" element={<EventDetails />} />
+          <Route path="events/:eventId/edit" element={<EventEdit />} />
+          <Route path="events/:eventId" element={<EventDetails />} />
+          <Route path="events" element={<EventManagement />} />
+          <Route path="athletes" element={<AthleteManagement />} />
+          <Route path="categories" element={<CategoryManagement />} />
+          <Route path="wods" element={<WODManagement />} />
+          <Route path="exercises" element={<ExerciseLibraryManager />} />
+          <Route path="authorization" element={<AuthorizationAdmin />} />
+          <Route path="scores" element={<ScoreEntry />} />
+          <Route path="leaderboard" element={<Leaderboard />} />
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="organization/:organizationId" element={<OrganizationManagement />} />
+          <Route path="organization" element={<OrganizationManagement />} />
+          <Route path="admin-profile" element={<AdminProfile user={user} signOut={signOut} />} />
+          <Route path="/" element={<EventManagement />} />
           <Route path="*" element={<EventManagement />} />
         </Routes>
       </main>
@@ -245,7 +294,7 @@ function BackofficeLayout({ user, signOut }) {
           color: #bdc3c7;
         }
         .role-badge {
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ed7845, #f09035)
           color: white;
           padding: 3px 8px;
           border-radius: 12px;
@@ -326,11 +375,6 @@ function BackofficeLayout({ user, signOut }) {
           }
         }
         @media (max-width: 768px) {
-          .backoffice-layout {
-            flex-direction: column;
-            overflow-x: hidden;
-            width: 100%;
-          }
           .sidebar-container {
             position: fixed;
             top: 0;
@@ -347,6 +391,10 @@ function BackofficeLayout({ user, signOut }) {
           .sidebar-container:not(.hidden) {
             transform: translateX(0);
           }
+          .sidebar-container.hidden {
+            transform: translateX(-100%);
+            width: 0;
+          }
           .backoffice-content {
             margin-left: 0;
             width: 100%;
@@ -354,13 +402,15 @@ function BackofficeLayout({ user, signOut }) {
             padding: 60px 15px 15px;
             background: #f8f9fa;
             overflow-x: hidden;
+            position: relative;
+            z-index: 1;
           }
           .sidebar-toggle {
             display: block;
             position: fixed;
             top: 15px;
             left: 15px;
-            z-index: 1001;
+            z-index: 1002;
             background: #007bff;
             color: white;
             border: none;
@@ -375,7 +425,6 @@ function BackofficeLayout({ user, signOut }) {
             background: #0056b3;
           }
           .mobile-overlay {
-            display: block;
             position: fixed;
             top: 0;
             left: 0;
@@ -385,31 +434,25 @@ function BackofficeLayout({ user, signOut }) {
             z-index: 999;
           }
         }
+        @media (min-width: 769px) {
+          .sidebar-container.hidden {
+            width: 60px;
           }
-          .sidebar-container:not(.hidden) {
-            width: 100%;
+          .sidebar-container.hidden .nav-text {
+            display: none;
           }
-          .nav-links {
-            display: flex;
-            flex-direction: column;
-            padding: 60px 10px 10px;
+          .sidebar-container.hidden .admin-text {
+            display: none;
           }
-          .nav-links a {
-            white-space: nowrap;
-            min-width: 100px;
-            text-align: left;
-            border-left: none;
-            border-bottom: 1px solid #34495e;
-            padding: 15px 20px;
+          .sidebar-container.hidden .nav-links a {
+            padding: 12px 8px;
+            justify-content: center;
           }
-          .nav-links a:hover,
-          .nav-links a.active {
-            border-left: 3px solid #3498db;
-            border-bottom-color: #34495e;
+          .sidebar-container.hidden .nav-icon {
+            margin-right: 0;
           }
-          .backoffice-content {
-            padding: 60px 15px 15px;
-            width: 100%;
+          .mobile-overlay {
+            display: none;
           }
         }
         @media (max-width: 480px) {

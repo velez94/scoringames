@@ -38,7 +38,21 @@ Ensures ScorinGames platform follows Twelve Factor App principles, Domain-Driven
 - **API-First Design**: Services communicate only through well-defined APIs
 - **Decentralized Governance**: Each team owns their service's technology choices
 - **Failure Isolation**: Design for failure - circuit breakers, timeouts, retries
-- **Independent Deployment**: Services can be deployed independently via CDK
+- **Independent Deployment**: Services can be deployed independently via CDK stacks
+
+### Stack Organization
+```
+infrastructure/
+├── shared/              # Cognito, EventBridge, S3
+├── competitions/        # Events domain
+├── athletes/            # Athletes domain
+├── scoring/             # Scoring domain
+├── organizations/       # Organizations & RBAC
+├── scheduling/          # Scheduling domain
+├── categories/          # Categories domain
+├── wods/               # WODs domain
+└── main-stack.ts       # Orchestrator
+```
 
 ## Error Handling
 - If violating Twelve Factor principles, refactor to use environment variables and stateless design

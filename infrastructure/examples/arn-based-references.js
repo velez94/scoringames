@@ -1,0 +1,64 @@
+"use strict";
+// ❌ NOT RECOMMENDED - Use direct object passing instead
+// This is an example of ARN-based cross-stack references
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.MainStackWithArns = exports.CompetitionsStackWithArns = exports.SharedStackWithArns = void 0;
+const cdk = require("aws-cdk-lib");
+const events = require("aws-cdk-lib/aws-events");
+const dynamodb = require("aws-cdk-lib/aws-dynamodb");
+// Shared Stack with ARN exports
+class SharedStackWithArns extends cdk.Stack {
+    constructor(scope, id, props) {
+        super(scope, id, props);
+        const eventBus = new events.EventBus(this, 'EventBus', {
+            eventBusName: 'scoringames-central',
+        });
+        // Export ARNs
+        this.eventBusArn = eventBus.eventBusArn;
+        this.eventBusName = eventBus.eventBusName;
+        new cdk.CfnOutput(this, 'EventBusArn', {
+            value: this.eventBusArn,
+            exportName: 'ScorinGames-EventBusArn',
+        });
+    }
+}
+exports.SharedStackWithArns = SharedStackWithArns;
+class CompetitionsStackWithArns extends cdk.Stack {
+    constructor(scope, id, props) {
+        super(scope, id, props);
+        // Import EventBus from ARN
+        const eventBus = events.EventBus.fromEventBusArn(this, 'ImportedEventBus', props.eventBusArn);
+        // Import DynamoDB table from attributes
+        const organizationEventsTable = dynamodb.Table.fromTableAttributes(this, 'ImportedOrgEventsTable', {
+            tableName: props.organizationEventsTableName,
+            tableArn: props.organizationEventsTableArn,
+        });
+        // Use imported resources
+        eventBus.grantPutEventsTo( /* lambda */);
+        organizationEventsTable.grantReadData( /* lambda */);
+    }
+}
+exports.CompetitionsStackWithArns = CompetitionsStackWithArns;
+// Main Stack with ARN passing
+class MainStackWithArns extends cdk.Stack {
+    constructor(scope, id, props) {
+        super(scope, id, props);
+        const sharedStack = new SharedStackWithArns(this, 'Shared');
+        const competitionsStack = new CompetitionsStackWithArns(this, 'Competitions', {
+            eventBusArn: sharedStack.eventBusArn,
+            eventBusName: sharedStack.eventBusName,
+            organizationEventsTableName: 'org-events-table',
+            organizationEventsTableArn: 'arn:aws:dynamodb:...',
+        });
+        competitionsStack.addDependency(sharedStack);
+    }
+}
+exports.MainStackWithArns = MainStackWithArns;
+// ❌ Problems with this approach:
+// 1. More boilerplate code
+// 2. Need to pass both ARN and name for some resources
+// 3. Less type-safe
+// 4. Manual dependency management
+// 5. Harder to refactor
+// ✅ Current implementation (direct object passing) is better!
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiYXJuLWJhc2VkLXJlZmVyZW5jZXMuanMiLCJzb3VyY2VSb290IjoiIiwic291cmNlcyI6WyJhcm4tYmFzZWQtcmVmZXJlbmNlcy50cyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiO0FBQUEsd0RBQXdEO0FBQ3hELHlEQUF5RDs7O0FBRXpELG1DQUFtQztBQUNuQyxpREFBaUQ7QUFDakQscURBQXFEO0FBR3JELGdDQUFnQztBQUNoQyxNQUFhLG1CQUFvQixTQUFRLEdBQUcsQ0FBQyxLQUFLO0lBSWhELFlBQVksS0FBZ0IsRUFBRSxFQUFVLEVBQUUsS0FBc0I7UUFDOUQsS0FBSyxDQUFDLEtBQUssRUFBRSxFQUFFLEVBQUUsS0FBSyxDQUFDLENBQUM7UUFFeEIsTUFBTSxRQUFRLEdBQUcsSUFBSSxNQUFNLENBQUMsUUFBUSxDQUFDLElBQUksRUFBRSxVQUFVLEVBQUU7WUFDckQsWUFBWSxFQUFFLHFCQUFxQjtTQUNwQyxDQUFDLENBQUM7UUFFSCxjQUFjO1FBQ2QsSUFBSSxDQUFDLFdBQVcsR0FBRyxRQUFRLENBQUMsV0FBVyxDQUFDO1FBQ3hDLElBQUksQ0FBQyxZQUFZLEdBQUcsUUFBUSxDQUFDLFlBQVksQ0FBQztRQUUxQyxJQUFJLEdBQUcsQ0FBQyxTQUFTLENBQUMsSUFBSSxFQUFFLGFBQWEsRUFBRTtZQUNyQyxLQUFLLEVBQUUsSUFBSSxDQUFDLFdBQVc7WUFDdkIsVUFBVSxFQUFFLHlCQUF5QjtTQUN0QyxDQUFDLENBQUM7SUFDTCxDQUFDO0NBQ0Y7QUFwQkQsa0RBb0JDO0FBVUQsTUFBYSx5QkFBMEIsU0FBUSxHQUFHLENBQUMsS0FBSztJQUN0RCxZQUFZLEtBQWdCLEVBQUUsRUFBVSxFQUFFLEtBQXFDO1FBQzdFLEtBQUssQ0FBQyxLQUFLLEVBQUUsRUFBRSxFQUFFLEtBQUssQ0FBQyxDQUFDO1FBRXhCLDJCQUEyQjtRQUMzQixNQUFNLFFBQVEsR0FBRyxNQUFNLENBQUMsUUFBUSxDQUFDLGVBQWUsQ0FDOUMsSUFBSSxFQUNKLGtCQUFrQixFQUNsQixLQUFLLENBQUMsV0FBVyxDQUNsQixDQUFDO1FBRUYsd0NBQXdDO1FBQ3hDLE1BQU0sdUJBQXVCLEdBQUcsUUFBUSxDQUFDLEtBQUssQ0FBQyxtQkFBbUIsQ0FDaEUsSUFBSSxFQUNKLHdCQUF3QixFQUN4QjtZQUNFLFNBQVMsRUFBRSxLQUFLLENBQUMsMkJBQTJCO1lBQzVDLFFBQVEsRUFBRSxLQUFLLENBQUMsMEJBQTBCO1NBQzNDLENBQ0YsQ0FBQztRQUVGLHlCQUF5QjtRQUN6QixRQUFRLENBQUMsZ0JBQWdCLEVBQUMsWUFBWSxDQUFDLENBQUM7UUFDeEMsdUJBQXVCLENBQUMsYUFBYSxFQUFDLFlBQVksQ0FBQyxDQUFDO0lBQ3RELENBQUM7Q0FDRjtBQXpCRCw4REF5QkM7QUFFRCw4QkFBOEI7QUFDOUIsTUFBYSxpQkFBa0IsU0FBUSxHQUFHLENBQUMsS0FBSztJQUM5QyxZQUFZLEtBQWdCLEVBQUUsRUFBVSxFQUFFLEtBQXNCO1FBQzlELEtBQUssQ0FBQyxLQUFLLEVBQUUsRUFBRSxFQUFFLEtBQUssQ0FBQyxDQUFDO1FBRXhCLE1BQU0sV0FBVyxHQUFHLElBQUksbUJBQW1CLENBQUMsSUFBSSxFQUFFLFFBQVEsQ0FBQyxDQUFDO1FBRTVELE1BQU0saUJBQWlCLEdBQUcsSUFBSSx5QkFBeUIsQ0FBQyxJQUFJLEVBQUUsY0FBYyxFQUFFO1lBQzVFLFdBQVcsRUFBRSxXQUFXLENBQUMsV0FBVztZQUNwQyxZQUFZLEVBQUUsV0FBVyxDQUFDLFlBQVk7WUFDdEMsMkJBQTJCLEVBQUUsa0JBQWtCO1lBQy9DLDBCQUEwQixFQUFFLHNCQUFzQjtTQUNuRCxDQUFDLENBQUM7UUFFSCxpQkFBaUIsQ0FBQyxhQUFhLENBQUMsV0FBVyxDQUFDLENBQUM7SUFDL0MsQ0FBQztDQUNGO0FBZkQsOENBZUM7QUFFRCxpQ0FBaUM7QUFDakMsMkJBQTJCO0FBQzNCLHVEQUF1RDtBQUN2RCxvQkFBb0I7QUFDcEIsa0NBQWtDO0FBQ2xDLHdCQUF3QjtBQUV4Qiw4REFBOEQiLCJzb3VyY2VzQ29udGVudCI6WyIvLyDinYwgTk9UIFJFQ09NTUVOREVEIC0gVXNlIGRpcmVjdCBvYmplY3QgcGFzc2luZyBpbnN0ZWFkXG4vLyBUaGlzIGlzIGFuIGV4YW1wbGUgb2YgQVJOLWJhc2VkIGNyb3NzLXN0YWNrIHJlZmVyZW5jZXNcblxuaW1wb3J0ICogYXMgY2RrIGZyb20gJ2F3cy1jZGstbGliJztcbmltcG9ydCAqIGFzIGV2ZW50cyBmcm9tICdhd3MtY2RrLWxpYi9hd3MtZXZlbnRzJztcbmltcG9ydCAqIGFzIGR5bmFtb2RiIGZyb20gJ2F3cy1jZGstbGliL2F3cy1keW5hbW9kYic7XG5pbXBvcnQgeyBDb25zdHJ1Y3QgfSBmcm9tICdjb25zdHJ1Y3RzJztcblxuLy8gU2hhcmVkIFN0YWNrIHdpdGggQVJOIGV4cG9ydHNcbmV4cG9ydCBjbGFzcyBTaGFyZWRTdGFja1dpdGhBcm5zIGV4dGVuZHMgY2RrLlN0YWNrIHtcbiAgcHVibGljIHJlYWRvbmx5IGV2ZW50QnVzQXJuOiBzdHJpbmc7XG4gIHB1YmxpYyByZWFkb25seSBldmVudEJ1c05hbWU6IHN0cmluZztcblxuICBjb25zdHJ1Y3RvcihzY29wZTogQ29uc3RydWN0LCBpZDogc3RyaW5nLCBwcm9wcz86IGNkay5TdGFja1Byb3BzKSB7XG4gICAgc3VwZXIoc2NvcGUsIGlkLCBwcm9wcyk7XG5cbiAgICBjb25zdCBldmVudEJ1cyA9IG5ldyBldmVudHMuRXZlbnRCdXModGhpcywgJ0V2ZW50QnVzJywge1xuICAgICAgZXZlbnRCdXNOYW1lOiAnc2NvcmluZ2FtZXMtY2VudHJhbCcsXG4gICAgfSk7XG5cbiAgICAvLyBFeHBvcnQgQVJOc1xuICAgIHRoaXMuZXZlbnRCdXNBcm4gPSBldmVudEJ1cy5ldmVudEJ1c0FybjtcbiAgICB0aGlzLmV2ZW50QnVzTmFtZSA9IGV2ZW50QnVzLmV2ZW50QnVzTmFtZTtcblxuICAgIG5ldyBjZGsuQ2ZuT3V0cHV0KHRoaXMsICdFdmVudEJ1c0FybicsIHtcbiAgICAgIHZhbHVlOiB0aGlzLmV2ZW50QnVzQXJuLFxuICAgICAgZXhwb3J0TmFtZTogJ1Njb3JpbkdhbWVzLUV2ZW50QnVzQXJuJyxcbiAgICB9KTtcbiAgfVxufVxuXG4vLyBDb21wZXRpdGlvbnMgU3RhY2sgd2l0aCBBUk4gaW1wb3J0c1xuZXhwb3J0IGludGVyZmFjZSBDb21wZXRpdGlvbnNTdGFja1dpdGhBcm5zUHJvcHMgZXh0ZW5kcyBjZGsuU3RhY2tQcm9wcyB7XG4gIGV2ZW50QnVzQXJuOiBzdHJpbmc7XG4gIGV2ZW50QnVzTmFtZTogc3RyaW5nO1xuICBvcmdhbml6YXRpb25FdmVudHNUYWJsZU5hbWU6IHN0cmluZztcbiAgb3JnYW5pemF0aW9uRXZlbnRzVGFibGVBcm46IHN0cmluZztcbn1cblxuZXhwb3J0IGNsYXNzIENvbXBldGl0aW9uc1N0YWNrV2l0aEFybnMgZXh0ZW5kcyBjZGsuU3RhY2sge1xuICBjb25zdHJ1Y3RvcihzY29wZTogQ29uc3RydWN0LCBpZDogc3RyaW5nLCBwcm9wczogQ29tcGV0aXRpb25zU3RhY2tXaXRoQXJuc1Byb3BzKSB7XG4gICAgc3VwZXIoc2NvcGUsIGlkLCBwcm9wcyk7XG5cbiAgICAvLyBJbXBvcnQgRXZlbnRCdXMgZnJvbSBBUk5cbiAgICBjb25zdCBldmVudEJ1cyA9IGV2ZW50cy5FdmVudEJ1cy5mcm9tRXZlbnRCdXNBcm4oXG4gICAgICB0aGlzLFxuICAgICAgJ0ltcG9ydGVkRXZlbnRCdXMnLFxuICAgICAgcHJvcHMuZXZlbnRCdXNBcm5cbiAgICApO1xuXG4gICAgLy8gSW1wb3J0IER5bmFtb0RCIHRhYmxlIGZyb20gYXR0cmlidXRlc1xuICAgIGNvbnN0IG9yZ2FuaXphdGlvbkV2ZW50c1RhYmxlID0gZHluYW1vZGIuVGFibGUuZnJvbVRhYmxlQXR0cmlidXRlcyhcbiAgICAgIHRoaXMsXG4gICAgICAnSW1wb3J0ZWRPcmdFdmVudHNUYWJsZScsXG4gICAgICB7XG4gICAgICAgIHRhYmxlTmFtZTogcHJvcHMub3JnYW5pemF0aW9uRXZlbnRzVGFibGVOYW1lLFxuICAgICAgICB0YWJsZUFybjogcHJvcHMub3JnYW5pemF0aW9uRXZlbnRzVGFibGVBcm4sXG4gICAgICB9XG4gICAgKTtcblxuICAgIC8vIFVzZSBpbXBvcnRlZCByZXNvdXJjZXNcbiAgICBldmVudEJ1cy5ncmFudFB1dEV2ZW50c1RvKC8qIGxhbWJkYSAqLyk7XG4gICAgb3JnYW5pemF0aW9uRXZlbnRzVGFibGUuZ3JhbnRSZWFkRGF0YSgvKiBsYW1iZGEgKi8pO1xuICB9XG59XG5cbi8vIE1haW4gU3RhY2sgd2l0aCBBUk4gcGFzc2luZ1xuZXhwb3J0IGNsYXNzIE1haW5TdGFja1dpdGhBcm5zIGV4dGVuZHMgY2RrLlN0YWNrIHtcbiAgY29uc3RydWN0b3Ioc2NvcGU6IENvbnN0cnVjdCwgaWQ6IHN0cmluZywgcHJvcHM/OiBjZGsuU3RhY2tQcm9wcykge1xuICAgIHN1cGVyKHNjb3BlLCBpZCwgcHJvcHMpO1xuXG4gICAgY29uc3Qgc2hhcmVkU3RhY2sgPSBuZXcgU2hhcmVkU3RhY2tXaXRoQXJucyh0aGlzLCAnU2hhcmVkJyk7XG4gICAgXG4gICAgY29uc3QgY29tcGV0aXRpb25zU3RhY2sgPSBuZXcgQ29tcGV0aXRpb25zU3RhY2tXaXRoQXJucyh0aGlzLCAnQ29tcGV0aXRpb25zJywge1xuICAgICAgZXZlbnRCdXNBcm46IHNoYXJlZFN0YWNrLmV2ZW50QnVzQXJuLFxuICAgICAgZXZlbnRCdXNOYW1lOiBzaGFyZWRTdGFjay5ldmVudEJ1c05hbWUsXG4gICAgICBvcmdhbml6YXRpb25FdmVudHNUYWJsZU5hbWU6ICdvcmctZXZlbnRzLXRhYmxlJyxcbiAgICAgIG9yZ2FuaXphdGlvbkV2ZW50c1RhYmxlQXJuOiAnYXJuOmF3czpkeW5hbW9kYjouLi4nLFxuICAgIH0pO1xuXG4gICAgY29tcGV0aXRpb25zU3RhY2suYWRkRGVwZW5kZW5jeShzaGFyZWRTdGFjayk7XG4gIH1cbn1cblxuLy8g4p2MIFByb2JsZW1zIHdpdGggdGhpcyBhcHByb2FjaDpcbi8vIDEuIE1vcmUgYm9pbGVycGxhdGUgY29kZVxuLy8gMi4gTmVlZCB0byBwYXNzIGJvdGggQVJOIGFuZCBuYW1lIGZvciBzb21lIHJlc291cmNlc1xuLy8gMy4gTGVzcyB0eXBlLXNhZmVcbi8vIDQuIE1hbnVhbCBkZXBlbmRlbmN5IG1hbmFnZW1lbnRcbi8vIDUuIEhhcmRlciB0byByZWZhY3RvclxuXG4vLyDinIUgQ3VycmVudCBpbXBsZW1lbnRhdGlvbiAoZGlyZWN0IG9iamVjdCBwYXNzaW5nKSBpcyBiZXR0ZXIhXG4iXX0=

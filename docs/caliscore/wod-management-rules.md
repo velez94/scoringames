@@ -10,7 +10,7 @@
 - No role-based restrictions
 
 **Required Implementation**: ✅ **RBAC Authorization**
-- **Super Admin** (`admin@scoringames.com`): Can delete any WOD
+- **Super Admin** (`admin@athleon.fitness`): Can delete any WOD
 - **Organization Owner**: Can delete WODs in their organization's events
 - **Organization Admin**: Can delete WODs in their organization's events  
 - **Organization Member**: Can delete WODs in their organization's events

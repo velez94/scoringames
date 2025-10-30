@@ -29,19 +29,19 @@ Amplify.configure({
       {
         name: 'CalisthenicsAPI',
         endpoint: process.env.REACT_APP_API_URL,
-        region: process.env.REACT_APP_REGION,
         custom_header: async () => {
           try {
             const session = await Auth.currentSession();
-            return { Authorization: `Bearer ${session.getIdToken().getJwtToken()}` };
+            const token = session.getIdToken().getJwtToken();
+            return { Authorization: token };
           } catch (error) {
-            console.warn('No auth session available:', error);
+            console.error('Auth error:', error);
             return {};
           }
         }
-      },
-    ],
-  },
+      }
+    ]
+  }
 });
 
 class ErrorBoundary extends React.Component {
@@ -200,6 +200,32 @@ function AuthPage() {
   );
 }
 
+function AuthPageWrapper() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  React.useEffect(() => {
+    // Check if user is already authenticated
+    Auth.currentAuthenticatedUser()
+      .then(user => {
+        // User is authenticated, redirect away from login
+        if (location.pathname === '/login') {
+          const isOrganizer = canAccessBackoffice(user);
+          if (isOrganizer) {
+            navigate('/backoffice', { replace: true });
+          } else {
+            navigate(`/athlete/${user.username}`, { replace: true });
+          }
+        }
+      })
+      .catch(() => {
+        // Not authenticated, stay on login page
+      });
+  }, [navigate, location]);
+  
+  return <AuthPage />;
+}
+
 function App() {
   return (
     <ErrorBoundary>
@@ -208,7 +234,10 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/events" element={<PublicEvents />} />
           <Route path="/events/:eventId" element={<PublicEventDetail />} />
-          <Route path="/login" element={<AuthPage />} />
+          <Route path="/login" element={<AuthPageWrapper />} />
+          <Route path="/athlete/events/:eventId" element={<AuthPage />} />
+          <Route path="/athlete/:athleteId" element={<AuthPage />} />
+          <Route path="/backoffice/*" element={<AuthPage />} />
           <Route path="/*" element={<AuthPage />} />
         </Routes>
       </Router>

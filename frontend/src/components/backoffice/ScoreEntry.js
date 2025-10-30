@@ -16,6 +16,18 @@ function ScoreEntry({ user }) {
   const [selectedSession, setSelectedSession] = useState(null);
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [scores, setScores] = useState([]);
+  const [exercises, setExercises] = useState([]);
+  const [selectedWod, setSelectedWod] = useState(null);
+  const [athletePerformance, setAthletePerformance] = useState([]);
+  const [rank, setRank] = useState(1);
+  
+  // Global advanced scoring system
+  const globalScoringSystem = {
+    type: 'advanced',
+    config: {
+      timeBonuses: { 1: 10, 2: 7, 3: 5 }
+    }
+  };
   
   const [scoreData, setScoreData] = useState({
     athleteId: '',
@@ -51,6 +63,69 @@ function ScoreEntry({ user }) {
       fetchPublishedSchedules();
     }
   }, [selectedEvent]);
+
+  useEffect(() => {
+    fetchExercises();
+  }, []);
+
+  useEffect(() => {
+    if (scoreData.wodId) {
+      const wod = wods.find(w => w.wodId === scoreData.wodId);
+      setSelectedWod(wod);
+      if (wod?.movements) {
+        setAthletePerformance(wod.movements.map(m => ({
+          exerciseId: m.exerciseId,
+          exercise: m.exercise,
+          reps: '',
+          weight: '',
+          eqs: 5
+        })));
+      }
+    }
+  }, [scoreData.wodId, wods]);
+
+  const fetchExercises = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/exercises');
+      setExercises(response || []);
+    } catch (error) {
+      console.error('Error fetching exercises:', error);
+    }
+  };
+
+  const calculateScore = () => {
+    if (!selectedWod || !athletePerformance.length || !exercises.length) {
+      return null;
+    }
+
+    let totalEDS = 0;
+    
+    athletePerformance.forEach(perf => {
+      const exercise = exercises.find(e => 
+        e.exerciseId === perf.exerciseId || 
+        e.name.toLowerCase() === perf.exercise?.toLowerCase()
+      );
+      
+      if (!exercise || !perf.reps) return;
+
+      const reps = parseInt(perf.reps) || 0;
+      const weight = parseFloat(perf.weight?.replace(/[^\d.]/g, '')) || 0;
+      const eqs = parseInt(perf.eqs) || 5;
+      
+      let eds = exercise.baseScore * reps;
+      
+      exercise.modifiers?.forEach(mod => {
+        if (mod.type === 'weight' && weight > 0) {
+          eds += Math.floor(weight / mod.increment) * mod.points * reps;
+        }
+      });
+      
+      totalEDS += eds * eqs;
+    });
+
+    const timeBonus = globalScoringSystem.config.timeBonuses[rank] || 0;
+    return totalEDS + timeBonus;
+  };
 
   useEffect(() => {
     if (selectedEvent && scoreData.wodId && scoreData.categoryId) {
@@ -147,34 +222,48 @@ function ScoreEntry({ user }) {
     setMessage('');
 
     try {
+      const calculatedScore = calculateScore();
+      
       const scorePayload = {
         eventId: selectedEvent.eventId,
         athleteId: scoreData.athleteId,
         wodId: scoreData.wodId,
         categoryId: scoreData.categoryId,
-        score: scoreData.score,
-        dayId: scoreData.dayId || 'day-1', // Default day
-        rank: 0, // Default rank
+        dayId: scoreData.dayId || 'day-1',
+        score: calculatedScore || scoreData.score,
+        rank: rank,
+        rawData: {
+          exercises: athletePerformance.filter(p => p.reps),
+          rank: rank,
+          timeTaken: scoreData.timeTaken || 'Completed'
+        },
         ...(scoreData.scheduleId && { scheduleId: scoreData.scheduleId }),
         ...(scoreData.sessionId && { sessionId: scoreData.sessionId }),
-        ...(scoreData.scoreType && { scoreType: scoreData.scoreType }),
         ...(selectedMatch && { matchId: selectedMatch.matchId || `match-${Date.now()}` })
       };
 
       console.log('Submitting score payload:', scorePayload);
 
-      await API.post('CalisthenicsAPI', '/scores', {
+      const response = await API.post('CalisthenicsAPI', '/scores', {
         body: scorePayload
       });
 
-      setMessage('✅ Score submitted successfully!');
+      if (response.updated) {
+        setMessage('✅ Score updated successfully!');
+      } else {
+        setMessage('✅ Score submitted successfully!');
+      }
+      
       setScoreData({
         athleteId: '',
         wodId: '',
         categoryId: '',
-        score: ''
+        score: '',
+        timeTaken: ''
       });
       setAthleteSearch('');
+      setAthletePerformance([]);
+      setRank(1);
       
       // Refresh scores
       await fetchScores();
@@ -369,18 +458,137 @@ function ScoreEntry({ user }) {
                   </div>
                 </div>
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Score *</label>
-                    <input
-                      type="text"
-                      value={scoreData.score}
-                      onChange={(e) => setScoreData({...scoreData, score: e.target.value})}
-                      placeholder="e.g., 150, 05:30, 25 reps"
-                      required
-                    />
+                {selectedWod && athletePerformance.length > 0 && (
+                  <div style={{background: '#f8f9fa', padding: '15px', borderRadius: '8px', marginTop: '15px'}}>
+                    <div style={{
+                      background: 'white',
+                      padding: '12px',
+                      borderRadius: '6px',
+                      marginBottom: '15px',
+                      borderLeft: '4px solid #667eea'
+                    }}>
+                      <h4 style={{margin: '0 0 8px 0', color: '#667eea'}}>📋 {selectedWod.name}</h4>
+                      <div style={{fontSize: '13px', color: '#666'}}>
+                        <div><strong>Format:</strong> {selectedWod.format}</div>
+                        {selectedWod.timeLimit && <div><strong>Time Cap:</strong> ⏱️ {selectedWod.timeLimit}</div>}
+                        <div style={{marginTop: '8px'}}><strong>Movements:</strong></div>
+                        <ul style={{margin: '5px 0', paddingLeft: '20px'}}>
+                          {selectedWod.movements?.map((m, i) => (
+                            <li key={i}>{m.reps} {m.exercise} {m.weight && `(${m.weight})`}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    <h4 style={{marginTop: 0}}>Athlete Performance</h4>
+                    
+                    <div style={{marginBottom: '15px'}}>
+                      <label style={{fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px'}}>
+                        Time Taken (mm:ss) or DNF
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g., 05:30 or DNF"
+                        value={scoreData.timeTaken || ''}
+                        onChange={(e) => setScoreData({...scoreData, timeTaken: e.target.value})}
+                        style={{width: '200px', padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                      />
+                      <small style={{display: 'block', color: '#999', marginTop: '3px'}}>
+                        Leave empty if completed within time cap
+                      </small>
+                    </div>
+                    
+                    {athletePerformance.map((perf, idx) => (
+                      <div key={idx} style={{
+                        display: 'grid',
+                        gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                        gap: '10px',
+                        marginBottom: '10px',
+                        padding: '10px',
+                        background: 'white',
+                        borderRadius: '4px'
+                      }}>
+                        <div>
+                          <label style={{fontSize: '12px', color: '#666'}}>{perf.exercise}</label>
+                        </div>
+                        <div>
+                          <input
+                            type="number"
+                            placeholder="Reps"
+                            value={perf.reps}
+                            onChange={(e) => {
+                              const updated = [...athletePerformance];
+                              updated[idx].reps = e.target.value;
+                              setAthletePerformance(updated);
+                            }}
+                            style={{width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ddd'}}
+                          />
+                          <small style={{fontSize: '10px', color: '#999'}}>Completed</small>
+                        </div>
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="Weight (kg)"
+                            value={perf.weight}
+                            onChange={(e) => {
+                              const updated = [...athletePerformance];
+                              updated[idx].weight = e.target.value;
+                              setAthletePerformance(updated);
+                            }}
+                            style={{width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ddd'}}
+                          />
+                        </div>
+                        <div>
+                          <select
+                            value={perf.eqs}
+                            onChange={(e) => {
+                              const updated = [...athletePerformance];
+                              updated[idx].eqs = e.target.value;
+                              setAthletePerformance(updated);
+                            }}
+                            style={{width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ddd'}}
+                          >
+                            <option value="5">EQS: 5</option>
+                            <option value="4">EQS: 4</option>
+                            <option value="3">EQS: 3</option>
+                            <option value="2">EQS: 2</option>
+                            <option value="1">EQS: 1</option>
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    <div style={{marginTop: '15px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+                      <div>
+                        <label style={{fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px'}}>Rank/Position</label>
+                        <select
+                          value={rank}
+                          onChange={(e) => setRank(parseInt(e.target.value))}
+                          style={{width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                        >
+                          <option value="1">1st Place (+10 pts)</option>
+                          <option value="2">2nd Place (+7 pts)</option>
+                          <option value="3">3rd Place (+5 pts)</option>
+                          <option value="4">4th+ Place (+0 pts)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px'}}>Calculated Score</label>
+                        <div style={{
+                          padding: '8px',
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          color: 'white',
+                          borderRadius: '4px',
+                          fontSize: '20px',
+                          fontWeight: 'bold',
+                          textAlign: 'center'
+                        }}>
+                          {calculateScore() || 0} pts
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </>
             )}
 
@@ -482,64 +690,134 @@ function ScoreEntry({ user }) {
                           </select>
                         </div>
 
-                        <div className="form-group">
-                          <label>Score Type *</label>
-                          <select
-                            value={scoreData.scoreType || ''}
-                            onChange={(e) => setScoreData({...scoreData, scoreType: e.target.value})}
-                            required
-                          >
-                            <option value="">Select score type...</option>
-                            <option value="time">Time (mm:ss or seconds)</option>
-                            <option value="reps">Reps/Rounds</option>
-                            <option value="weight">Weight (lbs/kg)</option>
-                            <option value="points">Points</option>
-                            <option value="placement">Placement (1st, 2nd)</option>
-                          </select>
-                        </div>
-
-                        <div className="form-group">
-                          <label>
-                            {scoreData.scoreType === 'time' ? 'Time *' : 
-                             scoreData.scoreType === 'reps' ? 'Reps/Rounds *' :
-                             scoreData.scoreType === 'weight' ? 'Weight *' :
-                             scoreData.scoreType === 'points' ? 'Points *' :
-                             scoreData.scoreType === 'placement' ? 'Placement *' : 'Score *'}
-                          </label>
-                          {scoreData.scoreType === 'placement' ? (
-                            <select
-                              value={scoreData.score}
-                              onChange={(e) => setScoreData({...scoreData, score: e.target.value})}
-                              required
-                            >
-                              <option value="">Select placement...</option>
-                              <option value="1">Winner (1st place)</option>
-                              <option value="2">Runner-up (2nd place)</option>
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={scoreData.score}
-                              onChange={(e) => setScoreData({...scoreData, score: e.target.value})}
-                              placeholder={
-                                scoreData.scoreType === 'time' ? 'e.g., 3:45 or 225' :
-                                scoreData.scoreType === 'reps' ? 'e.g., 150 or 5+10' :
-                                scoreData.scoreType === 'weight' ? 'e.g., 225 or 102.5' :
-                                scoreData.scoreType === 'points' ? 'e.g., 100' : 'Enter score'
-                              }
-                              required
-                            />
-                          )}
-                          {scoreData.scoreType === 'time' && (
-                            <small style={{color: '#666'}}>Format: mm:ss (3:45) or total seconds (225)</small>
-                          )}
-                          {scoreData.scoreType === 'reps' && (
-                            <small style={{color: '#666'}}>Format: total reps (150) or rounds+reps (5+10)</small>
-                          )}
-                          {scoreData.scoreType === 'placement' && (
-                            <small style={{color: '#666'}}>VERSUS mode: Winner vs Runner-up</small>
-                          )}
-                        </div>
+                        {selectedWod && athletePerformance.length > 0 && (
+                          <div style={{background: '#f8f9fa', padding: '15px', borderRadius: '8px', marginTop: '15px'}}>
+                            <div style={{
+                              background: 'white',
+                              padding: '12px',
+                              borderRadius: '6px',
+                              marginBottom: '15px',
+                              borderLeft: '4px solid #667eea'
+                            }}>
+                              <h4 style={{margin: '0 0 8px 0', color: '#667eea'}}>📋 {selectedWod.name}</h4>
+                              <div style={{fontSize: '13px', color: '#666'}}>
+                                <div><strong>Format:</strong> {selectedWod.format}</div>
+                                {selectedWod.timeLimit && <div><strong>Time Cap:</strong> ⏱️ {selectedWod.timeLimit}</div>}
+                                <div style={{marginTop: '8px'}}><strong>Movements:</strong></div>
+                                <ul style={{margin: '5px 0', paddingLeft: '20px'}}>
+                                  {selectedWod.movements?.map((m, i) => (
+                                    <li key={i}>{m.reps} {m.exercise} {m.weight && `(${m.weight})`}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                            
+                            <h4 style={{marginTop: 0}}>Athlete Performance</h4>
+                            
+                            <div style={{marginBottom: '15px'}}>
+                              <label style={{fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px'}}>
+                                Time Taken (mm:ss) or DNF
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="e.g., 05:30 or DNF"
+                                value={scoreData.timeTaken || ''}
+                                onChange={(e) => setScoreData({...scoreData, timeTaken: e.target.value})}
+                                style={{width: '200px', padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                              />
+                            </div>
+                            
+                            {athletePerformance.map((perf, idx) => (
+                              <div key={idx} style={{
+                                display: 'grid',
+                                gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                                gap: '10px',
+                                marginBottom: '10px',
+                                padding: '10px',
+                                background: 'white',
+                                borderRadius: '4px'
+                              }}>
+                                <div>
+                                  <label style={{fontSize: '12px', color: '#666'}}>{perf.exercise}</label>
+                                </div>
+                                <div>
+                                  <input
+                                    type="number"
+                                    placeholder="Reps"
+                                    value={perf.reps}
+                                    onChange={(e) => {
+                                      const updated = [...athletePerformance];
+                                      updated[idx].reps = e.target.value;
+                                      setAthletePerformance(updated);
+                                    }}
+                                    style={{width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ddd'}}
+                                  />
+                                  <small style={{fontSize: '10px', color: '#999'}}>Completed</small>
+                                </div>
+                                <div>
+                                  <input
+                                    type="text"
+                                    placeholder="Weight (kg)"
+                                    value={perf.weight}
+                                    onChange={(e) => {
+                                      const updated = [...athletePerformance];
+                                      updated[idx].weight = e.target.value;
+                                      setAthletePerformance(updated);
+                                    }}
+                                    style={{width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ddd'}}
+                                  />
+                                </div>
+                                <div>
+                                  <select
+                                    value={perf.eqs}
+                                    onChange={(e) => {
+                                      const updated = [...athletePerformance];
+                                      updated[idx].eqs = e.target.value;
+                                      setAthletePerformance(updated);
+                                    }}
+                                    style={{width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ddd'}}
+                                  >
+                                    <option value="5">EQS: 5</option>
+                                    <option value="4">EQS: 4</option>
+                                    <option value="3">EQS: 3</option>
+                                    <option value="2">EQS: 2</option>
+                                    <option value="1">EQS: 1</option>
+                                  </select>
+                                </div>
+                              </div>
+                            ))}
+                            
+                            <div style={{marginTop: '15px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+                              <div>
+                                <label style={{fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px'}}>Rank/Position</label>
+                                <select
+                                  value={rank}
+                                  onChange={(e) => setRank(parseInt(e.target.value))}
+                                  style={{width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                                >
+                                  <option value="1">1st Place (+10 pts)</option>
+                                  <option value="2">2nd Place (+7 pts)</option>
+                                  <option value="3">3rd Place (+5 pts)</option>
+                                  <option value="4">4th+ Place (+0 pts)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px'}}>Calculated Score</label>
+                                <div style={{
+                                  padding: '8px',
+                                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                  color: 'white',
+                                  borderRadius: '4px',
+                                  fontSize: '20px',
+                                  fontWeight: 'bold',
+                                  textAlign: 'center'
+                                }}>
+                                  {calculateScore() || 0} pts
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                   </>
@@ -560,17 +838,60 @@ function ScoreEntry({ user }) {
             )}
           </form>
 
-          {/* Current Scores Display */}
-          {scoreData.wodId && scoreData.categoryId && (
-            <div className="current-scores">
-              <h3>Current Scores - {wods.find(w => w.wodId === scoreData.wodId)?.name}</h3>
-              {scores.length === 0 ? (
-                <p>No scores found for this WOD and category combination.</p>
+          {/* Current Scores Display - Always Visible */}
+          <div className="current-scores" style={{marginTop: '40px'}}>
+            <h3 style={{marginBottom: '20px'}}>📊 Current Scores</h3>
+            
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px'}}>
+              <div>
+                <label style={{display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: '500'}}>Filter by WOD</label>
+                <select
+                  value={scoreData.wodId}
+                  onChange={(e) => {
+                    setScoreData({...scoreData, wodId: e.target.value});
+                    if (e.target.value && scoreData.categoryId) {
+                      fetchScores();
+                    }
+                  }}
+                  style={{width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                >
+                  <option value="">All WODs</option>
+                  {wods.map(wod => (
+                    <option key={wod.wodId} value={wod.wodId}>{wod.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label style={{display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: '500'}}>Filter by Category</label>
+                <select
+                  value={scoreData.categoryId}
+                  onChange={(e) => {
+                    setScoreData({...scoreData, categoryId: e.target.value});
+                    if (scoreData.wodId && e.target.value) {
+                      fetchScores();
+                    }
+                  }}
+                  style={{width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                >
+                  <option value="">All Categories</option>
+                  {categories.map(category => (
+                    <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {scoreData.wodId && scoreData.categoryId ? (
+              scores.length === 0 ? (
+                <p style={{textAlign: 'center', color: '#999', padding: '20px'}}>No scores found for this WOD and category combination.</p>
               ) : (
                 <div className="scores-table">
                   <div className="table-header">
+                    <span>Rank</span>
                     <span>Athlete</span>
                     <span>Score</span>
+                    <span>Time</span>
                     <span>Submitted</span>
                   </div>
                   {scores
@@ -579,19 +900,27 @@ function ScoreEntry({ user }) {
                       const athlete = athletes.find(a => a.athleteId === score.athleteId);
                       return (
                         <div key={score.scoreId} className="table-row">
+                          <span style={{fontWeight: 'bold', color: index < 3 ? '#667eea' : '#666'}}>#{index + 1}</span>
                           <span>
                             {athlete ? `${athlete.firstName} ${athlete.lastName}` : score.athleteId}
                             {athlete?.alias && ` (${athlete.alias})`}
                           </span>
-                          <span className="score-value">{score.score}</span>
+                          <span className="score-value">{score.score} pts</span>
+                          <span style={{fontSize: '13px', color: '#666'}}>
+                            {score.rawData?.timeTaken || '-'}
+                          </span>
                           <span className="score-time">{new Date(score.createdAt).toLocaleTimeString()}</span>
                         </div>
                       );
                     })}
                 </div>
-              )}
-            </div>
-          )}
+              )
+            ) : (
+              <p style={{textAlign: 'center', color: '#999', padding: '20px'}}>
+                Select a WOD and Category to view scores
+              </p>
+            )}
+          </div>
         </>
       )}
 
@@ -766,7 +1095,7 @@ function ScoreEntry({ user }) {
 
         .mode-btn.active {
           border-color: #667eea;
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ed7845, #f09035)
           color: white;
         }
 
@@ -832,7 +1161,7 @@ function ScoreEntry({ user }) {
         }
 
         .btn-primary {
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ed7845, #f09035)
           color: white;
           border: none;
           padding: 14px 32px;
@@ -913,7 +1242,7 @@ function ScoreEntry({ user }) {
         .table-header {
           display: grid;
           grid-template-columns: 2fr 1fr 1fr;
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ed7845, #f09035)
           color: white;
           font-weight: 600;
           padding: 16px;

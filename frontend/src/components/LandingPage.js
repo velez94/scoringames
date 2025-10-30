@@ -14,8 +14,8 @@ function LandingPage() {
       <header className="hero">
         <nav className="navbar">
           <div className="logo">
-            <img src="/logo.svg" alt="CaliScore" className="logo-image" />
-            <span className="logo-text">CaliScore</span>
+            <img src="/athleon-white-crop.PNG" alt="Athleon" className="logo-image" />
+            <span className="logo-text">Athleon</span>
           </div>
           <div className="nav-links">
             <button className="btn-events" onClick={() => navigate('/events')}>
@@ -29,11 +29,11 @@ function LandingPage() {
 
         <div className="hero-content">
           <h1 className="hero-title">
-            Elevate Your Calisthenics Competitions
+            Where Calisthenics Champions Are Forged
           </h1>
           <p className="hero-subtitle">
-            The complete platform for organizing, scoring, and tracking calisthenics competitions. 
-            Real-time leaderboards, multi-event management, and athlete analytics in one place.
+            The complete platform for organizing, scoring, and tracking calisthenics competitions 
+            with real-time leaderboards, multi-event management, and athlete analytics.
           </p>
           <div className="hero-actions">
             <button className="btn-primary" onClick={handleGetStarted}>
@@ -118,7 +118,7 @@ function LandingPage() {
       {/* CTA Section */}
       <section className="cta">
         <h2>Ready to Transform Your Competitions?</h2>
-        <p>Join gyms and organizers already using CaliScore</p>
+        <p>Join gyms and organizers already using Athleon Forge</p>
         <button className="btn-primary" onClick={handleGetStarted}>
           Start Your Free Competition
         </button>
@@ -128,10 +128,10 @@ function LandingPage() {
       <footer className="footer">
         <div className="footer-content">
           <div className="footer-brand">
-            <img src="/logo.svg" alt="CaliScore" className="logo-image" />
-            <span className="logo-text">CaliScore</span>
+            <img src="/athleon-white-crop.PNG" alt="Athleon" className="logo-image" />
+            <span>Athleon</span>
           </div>
-          <p>© 2025 CaliScore. Built for the calisthenics community.</p>
+          <p>© 2025 Athleon Forge. Where champions are forged.</p>
         </div>
       </footer>
 
@@ -161,7 +161,7 @@ function LandingPage() {
           gap: 10px;
           font-size: 24px;
           font-weight: 700;
-          color: #667eea;
+          color: #6B7C93;
         }
 
         .logo-image {
@@ -175,7 +175,7 @@ function LandingPage() {
 
         /* Hero Section */
         .hero {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #B87333 0%, #FF5722 100%);
           color: white;
           padding-bottom: 100px;
         }
@@ -212,7 +212,7 @@ function LandingPage() {
         /* Buttons */
         .btn-primary {
           background: white;
-          color: #667eea;
+          color: #FF5722;
           border: none;
           padding: 16px 32px;
           font-size: 18px;
@@ -250,7 +250,7 @@ function LandingPage() {
         }
 
         .btn-events {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #B87333 0%, #FF5722 100%);
           color: white;
           border: none;
           padding: 10px 24px;
@@ -259,17 +259,17 @@ function LandingPage() {
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
-          box-shadow: 0 4px 12px rgba(102,126,234,0.3);
+          box-shadow: 0 4px 12px rgba(255, 87, 34, 0.3);
         }
 
         .btn-events:hover {
           transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(102,126,234,0.4);
+          box-shadow: 0 6px 16px rgba(255, 87, 34, 0.4);
         }
 
         .btn-login {
           background: white;
-          color: #667eea;
+          color: #FF5722;
           border: 2px solid white;
           padding: 10px 24px;
           font-size: 16px;
@@ -358,7 +358,7 @@ function LandingPage() {
         .step-number {
           width: 60px;
           height: 60px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #B87333 0%, #FF5722 100%);
           color: white;
           border-radius: 50%;
           display: flex;
@@ -385,7 +385,7 @@ function LandingPage() {
         /* CTA Section */
         .cta {
           padding: 100px 5%;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #B87333 0%, #FF5722 100%);
           color: white;
           text-align: center;
         }

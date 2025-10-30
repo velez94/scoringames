@@ -6,7 +6,7 @@ const cognitoClient = new CognitoIdentityProviderClient({ region: 'us-east-2' })
 const dynamoClient = new DynamoDBClient({ region: 'us-east-2' });
 const ddb = DynamoDBDocumentClient.from(dynamoClient);
 
-const USER_POOL_ID = 'us-east-2_mWb6Dnztz';
+const USER_POOL_ID = 'us-east-2_KUxqDApCY';
 const EVENTS_TABLE = 'CalisthenicsAppStack-EventsTableD24865E5-W221XUEF5VR9';
 const ORGANIZER_EVENTS_TABLE = 'CalisthenicsAppStack-OrganizerEventsTable6FAFF2EB-1EN2I2JHF78CT';
 const ATHLETES_TABLE = 'CalisthenicsAppStack-AthletesTableF6FEDE0B-O9KQG48QNJ58';

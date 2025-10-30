@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
 import { useOrganization } from '../../contexts/OrganizationContext';
+import ScoreBreakdown from '../athlete/ScoreBreakdown';
 import './Backoffice.css';
 
 function Leaderboard() {
@@ -15,6 +16,7 @@ function Leaderboard() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [scores, setScores] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [expandedScore, setExpandedScore] = useState(null);
 
   useEffect(() => {
     if (selectedOrganization) {
@@ -263,32 +265,45 @@ function Leaderboard() {
               {leaderboard.map((entry, idx) => {
                 const rank = view === 'wod' ? idx + 1 : entry.rank;
                 const category = categories.find(c => c.categoryId === entry.categoryId);
+                const isExpanded = expandedScore === entry.athleteId;
                 
                 return (
-                  <tr key={entry.athleteId} className={getRankClass(rank)}>
-                    <td className="rank-cell">
-                      <span className={`rank-badge ${getRankClass(rank)}`}>
-                        #{rank}
-                      </span>
-                    </td>
-                    <td className="athlete-cell">{getAthleteName(entry.athleteId)}</td>
-                    <td>{category?.name || 'N/A'}</td>
-                    {view === 'wod' ? (
-                      <td className="score-cell">{entry.score}</td>
-                    ) : (
-                      <>
-                        <td className="points-cell">{entry.totalPoints}</td>
-                        <td className="results-cell">
-                          {entry.wodResults.map((r, i) => (
-                            <div key={i} className="wod-result">
-                              <span>{r.wodName}</span>
-                              <span>#{r.position} ({r.points}pts)</span>
-                            </div>
-                          ))}
+                  <React.Fragment key={entry.athleteId}>
+                    <tr className={getRankClass(rank)} onClick={() => setExpandedScore(isExpanded ? null : entry.athleteId)} style={{cursor: 'pointer'}}>
+                      <td className="rank-cell">
+                        <span className={`rank-badge ${getRankClass(rank)}`}>
+                          #{rank}
+                        </span>
+                      </td>
+                      <td className="athlete-cell">
+                        {getAthleteName(entry.athleteId)}
+                        {entry.breakdown && <span style={{marginLeft: '8px', fontSize: '12px'}}>📊</span>}
+                      </td>
+                      <td>{category?.name || 'N/A'}</td>
+                      {view === 'wod' ? (
+                        <td className="score-cell">{entry.score}</td>
+                      ) : (
+                        <>
+                          <td className="points-cell">{entry.totalPoints}</td>
+                          <td className="results-cell">
+                            {entry.wodResults.map((r, i) => (
+                              <div key={i} className="wod-result">
+                                <span>{r.wodName}</span>
+                                <span>#{r.position} ({r.points}pts)</span>
+                              </div>
+                            ))}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                    {isExpanded && entry.breakdown && (
+                      <tr>
+                        <td colSpan={view === 'wod' ? 4 : 5} style={{padding: '15px', background: '#f8f9fa'}}>
+                          <ScoreBreakdown score={entry} />
                         </td>
-                      </>
+                      </tr>
                     )}
-                  </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>

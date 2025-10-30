@@ -27,6 +27,8 @@ const SchedulerWizard = ({ eventId, onScheduleGenerated }) => {
     days: []
   });
   
+  const [dataLoading, setDataLoading] = useState(true);
+  
   const [schedules, setSchedules] = useState([]);
   const [currentSchedule, setCurrentSchedule] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -47,17 +49,88 @@ const SchedulerWizard = ({ eventId, onScheduleGenerated }) => {
 
   const loadEventData = async () => {
     try {
-      const [wods, categories, days] = await Promise.all([
-        API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`).catch(() => []),
-        API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`).catch(() => []),
-        API.get('CalisthenicsAPI', `/events/${eventId}/days`).catch(() => [])
+      setDataLoading(true);
+      console.log('🔍 Fetching schedule details for event:', eventId);
+      
+      // First get event details (same as EventDetails component)
+      const eventResponse = await API.get('CalisthenicsAPI', `/competitions/${eventId}`);
+      
+      console.log('📋 Event response keys:', Object.keys(eventResponse));
+      console.log('📋 Categories field exists:', !!eventResponse.categories);
+      console.log('📋 Workouts field exists:', !!eventResponse.workouts);
+      console.log('📋 WODs field exists:', !!eventResponse.wods);
+      
+      const [athletes, days] = await Promise.all([
+        API.get('CalisthenicsAPI', `/athletes?eventId=${eventId}`).catch(err => {
+          console.warn('Failed to load athletes:', err);
+          return [];
+        }),
+        API.get('CalisthenicsAPI', `/competitions/${eventId}/days`).catch(err => {
+          console.warn('Failed to load event days:', err);
+          return [];
+        })
       ]);
 
-      const athletes = await API.get('CalisthenicsAPI', `/athletes?eventId=${eventId}`).catch(() => []);
-      setEventData({ wods, categories, athletes, days });
+      // Get WODs from event record (same as EventDetails)
+      let wods = [];
+      console.log('📋 Raw eventResponse.workouts:', eventResponse.workouts?.length || 0);
+      console.log('📋 Raw eventResponse.wods:', eventResponse.wods?.length || 0);
+      
+      const eventWods = eventResponse.wods || eventResponse.workouts || [];
+      console.log('📋 Combined eventWods length:', eventWods.length);
+      
+      if (eventWods.length > 0) {
+        wods = eventWods;
+      } else {
+        // Fallback to fetching WODs linked to event
+        try {
+          wods = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`) || [];
+        } catch (err) {
+          console.warn('Failed to load WODs:', err);
+          wods = [];
+        }
+      }
+
+      // Get categories from event record (same as EventDetails)
+      let categories = [];
+      console.log('📋 Raw eventResponse.categories:', eventResponse.categories?.length || 0);
+      
+      const eventCategories = eventResponse.categories || [];
+      if (eventCategories.length > 0) {
+        console.log('📋 Categories before filtering:', eventCategories);
+        // Filter to only get objects (not strings) and valid category objects
+        categories = eventCategories.filter(category => 
+          typeof category === 'object' && 
+          category !== null && 
+          category.categoryId && 
+          category.name
+        );
+        console.log('📋 Categories after filtering:', categories.length);
+      } else {
+        // Fallback to fetching categories linked to event
+        try {
+          categories = await API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`) || [];
+        } catch (err) {
+          console.warn('Failed to load categories:', err);
+          categories = [];
+        }
+      }
+
+      console.log('Loaded event data:', { 
+        wods: wods?.length || 0, 
+        categories: categories?.length || 0, 
+        athletes: athletes?.length || 0, 
+        days: days?.length || 0,
+        categoriesRaw: categories,
+        athletesData: athletes
+      });
+      
+      setEventData({ wods: wods || [], categories: categories || [], athletes: athletes || [], days: days || [] });
     } catch (error) {
       console.error('Error loading event data:', error);
       setEventData({ wods: [], categories: [], athletes: [], days: [] });
+    } finally {
+      setDataLoading(false);
     }
   };
 
@@ -260,10 +333,39 @@ const SchedulerWizard = ({ eventId, onScheduleGenerated }) => {
           <Step2BasicSettings config={config} setConfig={setConfig} />
         )}
         {currentStep === 3 && (
-          <Step3CategoryConfig config={config} setConfig={setConfig} eventData={eventData} />
+          dataLoading ? (
+            <div className="step-content">
+              <h3>Tournament Configuration</h3>
+              <div className="loading-state">
+                <div className="spinner"></div>
+                <p>Loading categories and athletes...</p>
+              </div>
+            </div>
+          ) : !eventData.categories || eventData.categories.length === 0 ? (
+            <div className="step-content">
+              <h3>Tournament Configuration</h3>
+              <div className="empty-state">
+                <p>⚠️ No categories found for this event.</p>
+                <p>Please add categories to the event first before configuring the tournament.</p>
+                <small>Debug: Categories: {eventData.categories?.length || 0}, Athletes: {eventData.athletes?.length || 0}</small>
+              </div>
+            </div>
+          ) : (
+            <Step3CategoryConfig config={config} setConfig={setConfig} eventData={eventData} />
+          )
         )}
         {currentStep === 4 && (
-          <Step4WodAssignment config={config} setConfig={setConfig} eventData={eventData} />
+          dataLoading ? (
+            <div className="step-content">
+              <h3>WOD Assignment</h3>
+              <div className="loading-state">
+                <div className="spinner"></div>
+                <p>Loading WODs and categories...</p>
+              </div>
+            </div>
+          ) : (
+            <Step4WodAssignment config={config} setConfig={setConfig} eventData={eventData} />
+          )
         )}
         {currentStep === 5 && (
           <Step5Review config={config} eventData={eventData} onGenerate={generateSchedule} loading={loading} />
@@ -463,6 +565,17 @@ const Step2BasicSettings = ({ config, setConfig }) => (
           </div>
 
           <div className="setting-group">
+            <label>Concurrent Heats</label>
+            <input
+              type="number"
+              value={config.concurrentHeats || 1}
+              onChange={(e) => setConfig({...config, concurrentHeats: parseInt(e.target.value)})}
+              min="1" max="4"
+            />
+            <small>How many heats run at the same time</small>
+          </div>
+
+          <div className="setting-group">
             <label>Athletes Eliminated per Filter</label>
             <input
               type="number"
@@ -475,14 +588,47 @@ const Step2BasicSettings = ({ config, setConfig }) => (
           </div>
         </>
       )}
+
+      {config.competitionMode === 'VERSUS' && (
+        <div className="setting-group">
+          <label>Concurrent Matches</label>
+          <input
+            type="number"
+            value={config.concurrentMatches || 1}
+            onChange={(e) => setConfig({...config, concurrentMatches: parseInt(e.target.value)})}
+            min="1" max="4"
+          />
+          <small>How many 1v1 matches run at the same time</small>
+        </div>
+      )}
     </div>
   </div>
 );
 
 const Step3CategoryConfig = ({ config, setConfig, eventData }) => {
+  console.log('Step3CategoryConfig - Rendering with:', {
+    eventData,
+    categories: eventData?.categories,
+    athletes: eventData?.athletes,
+    competitionMode: config.competitionMode
+  });
+  
   const updateCategoryHeats = (categoryId, numberOfHeats) => {
     const newHeats = { ...config.categoryHeats, [categoryId]: parseInt(numberOfHeats) || 2 };
     setConfig({...config, categoryHeats: newHeats});
+  };
+
+  const updateEliminationRule = (categoryId, roundIndex, eliminate) => {
+    const newRules = { ...config.categoryEliminationRules };
+    if (!newRules[categoryId]) {
+      newRules[categoryId] = [];
+    }
+    newRules[categoryId][roundIndex] = {
+      filter: roundIndex + 1,
+      eliminate: parseInt(eliminate) || 0,
+      wildcards: 0
+    };
+    setConfig({...config, categoryEliminationRules: newRules});
   };
 
   // Initialize category heats for categories with athletes
@@ -508,35 +654,20 @@ const Step3CategoryConfig = ({ config, setConfig, eventData }) => {
     }
   }, [config.competitionMode, eventData.categories, eventData.athletes]);
 
-  const updateCategoryRule = (categoryId, filterIndex, field, value) => {
-    const newRules = { ...config.categoryEliminationRules };
-    if (!newRules[categoryId]) {
-      newRules[categoryId] = [];
-    }
-    if (!newRules[categoryId][filterIndex]) {
-      newRules[categoryId][filterIndex] = { filter: filterIndex + 1, eliminate: 0, wildcards: 0 };
-    }
-    newRules[categoryId][filterIndex][field] = parseInt(value) || 0;
-    setConfig({...config, categoryEliminationRules: newRules});
-  };
-
-  const calculateAdvancingForCategory = (categoryId, filterIndex) => {
-    const categoryAthletes = eventData.athletes.filter(a => a.categoryId === categoryId).length;
-    if (filterIndex === 0) return categoryAthletes;
+  const calculateRemainingAthletes = (categoryId, roundIndex) => {
+    const totalAthletes = eventData.athletes.filter(a => a.categoryId === categoryId).length;
+    let remaining = totalAthletes;
     
-    const categoryRules = config.categoryEliminationRules[categoryId] || [];
-    let currentAthletes = categoryAthletes;
-    
-    for (let i = 0; i < filterIndex; i++) {
-      const rule = categoryRules[i];
+    const rules = config.categoryEliminationRules[categoryId] || [];
+    for (let i = 0; i < roundIndex; i++) {
+      const rule = rules[i];
       if (rule) {
-        currentAthletes = Math.max(1, currentAthletes - rule.eliminate + rule.wildcards);
+        remaining = Math.max(1, remaining - rule.eliminate);
       } else {
-        currentAthletes = Math.ceil(currentAthletes / 2);
+        remaining = Math.ceil(remaining / 2); // Default: eliminate half
       }
     }
-    
-    return currentAthletes;
+    return remaining;
   };
 
   if (config.competitionMode !== 'VERSUS') {
@@ -546,15 +677,38 @@ const Step3CategoryConfig = ({ config, setConfig, eventData }) => {
         <p>✅ No additional category configuration needed for {config.competitionMode} mode.</p>
         <div className="categories-preview">
           <h4>Your Categories:</h4>
-          {eventData.categories.map(category => {
-            const athleteCount = eventData.athletes.filter(a => a.categoryId === category.categoryId).length;
-            return (
-              <div key={category.categoryId} className="category-preview">
-                <span className="category-name">{category.name}</span>
-                <span className="athlete-count">{athleteCount} athletes</span>
-              </div>
-            );
-          })}
+          {eventData.categories && eventData.categories.length > 0 ? (
+            eventData.categories.map(category => {
+              const athleteCount = eventData.athletes.filter(a => a.categoryId === category.categoryId).length;
+              return (
+                <div key={category.categoryId} className="category-preview">
+                  <span className="category-name">{category.name}</span>
+                  <span className="athlete-count">{athleteCount} athletes</span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="empty-state">
+              <p>⚠️ No categories found for this event.</p>
+              <p>Please add categories to the event first.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Check if we have categories for VERSUS mode
+  if (!eventData.categories || eventData.categories.length === 0) {
+    return (
+      <div className="step-content">
+        <h3>Tournament Configuration</h3>
+        <div className="empty-state">
+          <p>⚠️ No categories found for this event.</p>
+          <p>Please add categories to the event first before configuring the tournament.</p>
+          <div className="debug-info">
+            <small>Debug: Categories: {eventData.categories?.length || 0}, Athletes: {eventData.athletes?.length || 0}</small>
+          </div>
         </div>
       </div>
     );
@@ -566,9 +720,28 @@ const Step3CategoryConfig = ({ config, setConfig, eventData }) => {
       <p>Configure elimination rules for each category:</p>
       
       <div className="categories-config">
-        {eventData.categories.map(category => {
+        {eventData.categories
+          .filter(category => category && category.categoryId && category.name) // Filter out invalid categories
+          .map(category => {
           const athleteCount = eventData.athletes.filter(a => a.categoryId === category.categoryId).length;
-          if (athleteCount === 0) return null;
+          console.log('Category matching:', {
+            categoryId: category.categoryId,
+            categoryName: category.name,
+            athleteCount,
+            athletes: eventData.athletes.map(a => ({ id: a.userId, categoryId: a.categoryId, name: `${a.firstName} ${a.lastName}` }))
+          });
+          
+          if (athleteCount === 0) {
+            return (
+              <div key={category.categoryId} className="category-card">
+                <h4>{category.name} <span className="athlete-count">(0 athletes)</span></h4>
+                <div className="no-athletes-warning">
+                  <p>⚠️ No athletes registered in this category.</p>
+                  <p>Athletes must be registered before configuring tournament rules.</p>
+                </div>
+              </div>
+            );
+          }
           
           const numberOfHeats = config.categoryHeats[category.categoryId] || 2;
           
@@ -591,43 +764,28 @@ const Step3CategoryConfig = ({ config, setConfig, eventData }) => {
               <div className="elimination-rules">
                 <h5>Elimination Rules:</h5>
                 {Array.from({length: numberOfHeats}, (_, i) => {
-                  const categoryRules = config.categoryEliminationRules[category.categoryId] || [];
-                  const rule = categoryRules[i] || { filter: i + 1, eliminate: 0, wildcards: 0 };
-                  const startingAthletes = calculateAdvancingForCategory(category.categoryId, i);
+                  const startingAthletes = calculateRemainingAthletes(category.categoryId, i);
+                  const rules = config.categoryEliminationRules[category.categoryId] || [];
+                  const currentRule = rules[i] || { eliminate: 0 };
                   const maxEliminate = Math.max(0, startingAthletes - 1);
+                  const remaining = Math.max(1, startingAthletes - currentRule.eliminate);
                   
                   return (
-                    <div key={i} className="rule-row">
-                      <div className="rule-header">
+                    <div key={i} className="elimination-row">
+                      <div className="round-info">
                         <span className="round-label">Round {i + 1}:</span>
-                        <span className="athletes-flow">{startingAthletes} athletes →</span>
+                        <span className="athletes-count">{startingAthletes} athletes</span>
                       </div>
-                      <div className="rule-controls">
-                        <div className="control-group">
-                          <label>Athletes Eliminated:</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max={maxEliminate}
-                            value={rule.eliminate}
-                            onChange={(e) => updateCategoryRule(category.categoryId, i, 'eliminate', e.target.value)}
-                          />
-                        </div>
-                        <div className="control-group">
-                          <label>Wildcards:</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max={rule.eliminate}
-                            value={rule.wildcards}
-                            onChange={(e) => updateCategoryRule(category.categoryId, i, 'wildcards', e.target.value)}
-                          />
-                        </div>
-                        <div className="result-display">
-                          <span className="result-text">
-                            = {Math.max(1, startingAthletes - rule.eliminate + rule.wildcards)} advance
-                          </span>
-                        </div>
+                      <div className="elimination-control">
+                        <label>Eliminate:</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max={maxEliminate}
+                          value={currentRule.eliminate}
+                          onChange={(e) => updateEliminationRule(category.categoryId, i, e.target.value)}
+                        />
+                        <span className="result">→ {remaining} advance</span>
                       </div>
                     </div>
                   );
@@ -642,6 +800,10 @@ const Step3CategoryConfig = ({ config, setConfig, eventData }) => {
 };
 
 const Step4WodAssignment = ({ config, setConfig, eventData }) => {
+  console.log('Step4WodAssignment - eventData:', eventData);
+  console.log('Step4WodAssignment - wods:', eventData?.wods);
+  console.log('Step4WodAssignment - categories:', eventData?.categories);
+  
   if (config.competitionMode !== 'VERSUS') {
     return (
       <div className="step-content">

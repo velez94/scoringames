@@ -218,7 +218,7 @@ function AthleteLeaderboard({ userProfile }) {
     });
 
     const sortedLeaderboard = Object.values(athletePoints)
-      .filter(entry => entry.workoutCount > 0)
+      .filter(entry => entry.workoutCount > 0 && entry.athlete) // Filter out entries without athlete data
       .sort((a, b) => b.totalPoints - a.totalPoints)
       .map((entry, index) => ({
         ...entry,
@@ -296,7 +296,11 @@ function AthleteLeaderboard({ userProfile }) {
           
           {leaderboard.length > 0 ? (
             <div className="leaderboard-cards">
-              {leaderboard.map((entry) => (
+              {leaderboard.map((entry) => {
+                // Safety check for athlete data
+                if (!entry.athlete) return null;
+                
+                return (
                 <div 
                   key={entry.athlete.athleteId} 
                   className={`leaderboard-card ${isCurrentUser(entry.athlete.athleteId) ? 'current-user' : ''}`}
@@ -345,7 +349,7 @@ function AthleteLeaderboard({ userProfile }) {
                     </div>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           ) : (
             <div className="no-scores">
@@ -369,7 +373,7 @@ function AthleteLeaderboard({ userProfile }) {
           align-items: flex-end;
         }
         .refresh-btn {
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ed7845, #f09035)
           color: white;
           border: none;
           padding: 10px 20px;
@@ -436,7 +440,7 @@ function AthleteLeaderboard({ userProfile }) {
           margin-bottom: 15px;
         }
         .position-badge {
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ed7845, #f09035)
           color: white;
           border-radius: 50%;
           width: 50px;

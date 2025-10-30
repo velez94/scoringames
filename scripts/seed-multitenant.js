@@ -62,7 +62,7 @@ async function seedData() {
       status: 'upcoming',
       description: 'Annual summer calisthenics competition',
       location: 'Miami, FL',
-      createdBy: 'admin@scoringames.com',
+      createdBy: 'admin@athleon.fitness',
       createdAt: new Date().toISOString(),
     }
   }));

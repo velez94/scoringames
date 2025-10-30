@@ -26,7 +26,7 @@ export const OrganizationProvider = ({ children }) => {
     try {
       const user = await Auth.currentAuthenticatedUser();
       const email = user.attributes.email;
-      setIsSuperAdmin(email === 'admin@scoringames.com');
+      setIsSuperAdmin(email === 'admin@athleon.fitness');
     } catch (error) {
       console.error('Error checking super admin:', error);
     }
@@ -40,7 +40,7 @@ export const OrganizationProvider = ({ children }) => {
       const user = await Auth.currentAuthenticatedUser();
       const email = user.attributes.email;
       
-      if (email === 'admin@scoringames.com') {
+      if (email === 'admin@athleon.fitness') {
         const allOrgsOption = {
           organizationId: 'all',
           name: 'All Organizations',

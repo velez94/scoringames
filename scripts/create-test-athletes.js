@@ -1,7 +1,7 @@
 const { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand } = require('@aws-sdk/client-cognito-identity-provider');
 
 const client = new CognitoIdentityProviderClient({ region: 'us-east-2' });
-const USER_POOL_ID = 'us-east-2_mWb6Dnztz';
+const USER_POOL_ID = 'us-east-2_KUxqDApCY';
 const DEFAULT_PASSWORD = 'Athlete123!';
 
 const testAthletes = [

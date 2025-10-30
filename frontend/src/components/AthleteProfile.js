@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { API } from 'aws-amplify';
 import AthleteLeaderboard from './AthleteLeaderboard';
 import AthleteScheduleViewer from './AthleteScheduleViewer';
 
 function AthleteProfile({ user, signOut }) {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('profile');
@@ -16,6 +18,53 @@ function AthleteProfile({ user, signOut }) {
   const [editForm, setEditForm] = useState({});
   const [registrations, setRegistrations] = useState([]);
   const [selectedEventFilter, setSelectedEventFilter] = useState(null);
+  const [notification, setNotification] = useState(null);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [eventDetails, setEventDetails] = useState({
+    categories: [],
+    wods: [],
+    scores: [],
+    athletes: []
+  });
+
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const showEventDetails = async (event) => {
+    setSelectedEvent(event);
+    setShowEventModal(true);
+    
+    try {
+      const [categoriesRes, wodsRes] = await Promise.all([
+        API.get('CalisthenicsAPI', `/public/categories?eventId=${event.eventId}`),
+        API.get('CalisthenicsAPI', `/public/wods?eventId=${event.eventId}`)
+      ]);
+      
+      setEventDetails({
+        categories: categoriesRes || [],
+        wods: wodsRes || [],
+        scores: [],
+        athletes: []
+      });
+    } catch (error) {
+      console.log('Using basic event info (auth required for details)');
+      setEventDetails({
+        categories: [],
+        wods: [],
+        scores: [],
+        athletes: []
+      });
+    }
+  };
+
+  const closeEventModal = () => {
+    setShowEventModal(false);
+    setSelectedEvent(null);
+    setEventDetails({ categories: [], wods: [], scores: [], athletes: [] });
+  };
 
   useEffect(() => {
     fetchData();
@@ -138,10 +187,10 @@ function AthleteProfile({ user, signOut }) {
       
       // Refresh registrations
       await fetchRegistrations();
-      alert('Registration successful!');
+      showNotification('Registration successful!');
     } catch (error) {
       console.error('Error registering for event:', error);
-      alert('Error registering for event. Please try again.');
+      showNotification('Error registering for event. Please try again.', 'error');
     }
   };
 
@@ -256,6 +305,94 @@ function AthleteProfile({ user, signOut }) {
 
   return (
     <div className="athlete-profile">
+      {notification && (
+        <div className={`notification ${notification.type}`}>
+          {notification.message}
+        </div>
+      )}
+
+      {/* Event Details Modal */}
+      {showEventModal && selectedEvent && (
+        <div className="modal-overlay" onClick={closeEventModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selectedEvent.name}</h2>
+              <button className="close-btn" onClick={closeEventModal}>×</button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="event-info">
+                <p><strong>📅 Start Date:</strong> {new Date(selectedEvent.startDate).toLocaleDateString()}</p>
+                <p><strong>📅 End Date:</strong> {new Date(selectedEvent.endDate).toLocaleDateString()}</p>
+                <p><strong>📍 Location:</strong> {selectedEvent.location}</p>
+                <p><strong>📝 Description:</strong> {selectedEvent.description}</p>
+                <p><strong>🏆 Status:</strong> {selectedEvent.status}</p>
+                {selectedEvent.maxParticipants && (
+                  <p><strong>👥 Max Participants:</strong> {selectedEvent.maxParticipants}</p>
+                )}
+              </div>
+              
+              <div className="details-grid">
+                <div className="detail-section">
+                  <h3>Categories ({eventDetails.categories.length})</h3>
+                  <div className="detail-list">
+                    {eventDetails.categories.length > 0 ? (
+                      eventDetails.categories.map(cat => (
+                        <div key={cat.categoryId} className="detail-item">
+                          <strong>{cat.name}</strong>
+                          {cat.description && <p>{cat.description}</p>}
+                          <div className="category-meta">
+                            {cat.gender && <span>👤 {cat.gender}</span>}
+                            {cat.minAge && <span>🎂 {cat.minAge}+ years</span>}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="no-data">No categories available</p>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="detail-section">
+                  <h3>Workouts ({eventDetails.wods.length})</h3>
+                  <div className="detail-list">
+                    {eventDetails.wods.length > 0 ? (
+                      eventDetails.wods.map(wod => (
+                        <div key={wod.wodId} className="detail-item wod-item">
+                          <strong>{wod.name}</strong>
+                          {wod.description && <p className="wod-description">{wod.description}</p>}
+                          {wod.movements && wod.movements.length > 0 && (
+                            <div className="movements-list">
+                              <h4>Movements:</h4>
+                              <ul>
+                                {wod.movements.map((movement, index) => (
+                                  <li key={index}>{movement}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <div className="wod-meta">
+                            {wod.format && <span>⏱️ {wod.format}</span>}
+                            {wod.timeCap && <span>🕐 {wod.timeCap}s cap</span>}
+                            {wod.type && <span>🎯 {wod.type}</span>}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="no-data">No workouts available</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="sign-in-notice">
+                <h3>🏆 Ready to Compete?</h3>
+                <p>You're registered for this event! Check back during competition for live leaderboards and results.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="profile-header">
         <div className="header-content">
           <div className="profile-info">
@@ -464,18 +601,30 @@ function AthleteProfile({ user, signOut }) {
                       <div className="event-content">
                         <div className="event-header">
                           <h4>{event.name}</h4>
-                          <div className={`status-badge ${event.status}`}>
-                            {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
-                          </div>
+                          {event.status && (
+                            <div className={`status-badge ${event.status}`}>
+                              {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                            </div>
+                          )}
                         </div>
                         
                         <div className="event-details">
                           <p className="event-description">{event.description}</p>
                           
                           <div className="event-meta">
+                            {event.organizationName && (
+                              <div className="meta-item">
+                                <span className="meta-icon">🏢</span>
+                                <span>{event.organizationName}</span>
+                              </div>
+                            )}
+                            
                             <div className="meta-item">
                               <span className="meta-icon">📅</span>
-                              <span>{new Date(event.date).toLocaleDateString()}</span>
+                              <span>
+                                {event.startDate && new Date(event.startDate).toLocaleDateString()}
+                                {event.endDate && ` - ${new Date(event.endDate).toLocaleDateString()}`}
+                              </span>
                             </div>
                             
                             <div className="meta-item">
@@ -495,6 +644,15 @@ function AthleteProfile({ user, signOut }) {
                         <div className="registration-badge">
                           <span className="status-icon">✅</span>
                           <span>You are registered</span>
+                        </div>
+                        
+                        <div className="event-actions">
+                          <button 
+                            onClick={() => showEventDetails(event)}
+                            className="view-details-btn"
+                          >
+                            View Details
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -590,18 +748,30 @@ function AthleteProfile({ user, signOut }) {
                       <div className="event-content">
                         <div className="event-header">
                           <h4>{event.name}</h4>
-                          <div className={`status-badge ${event.status}`}>
-                            {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
-                          </div>
+                          {event.status && (
+                            <div className={`status-badge ${event.status}`}>
+                              {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                            </div>
+                          )}
                         </div>
                         
                         <div className="event-details">
                           <p className="event-description">{event.description}</p>
                           
                           <div className="event-meta">
+                            {event.organizationName && (
+                              <div className="meta-item">
+                                <span className="meta-icon">🏢</span>
+                                <span>{event.organizationName}</span>
+                              </div>
+                            )}
+                            
                             <div className="meta-item">
                               <span className="meta-icon">📅</span>
-                              <span>{new Date(event.date).toLocaleDateString()}</span>
+                              <span>
+                                {event.startDate && new Date(event.startDate).toLocaleDateString()}
+                                {event.endDate && ` - ${new Date(event.endDate).toLocaleDateString()}`}
+                              </span>
                             </div>
                             
                             {event.maxParticipants && (
@@ -621,6 +791,13 @@ function AthleteProfile({ user, signOut }) {
                         </div>
                         
                         <div className="event-actions">
+                          <button 
+                            onClick={() => showEventDetails(event)}
+                            className="view-details-btn"
+                          >
+                            View Details
+                          </button>
+                          
                           {isRegistered && (
                             <div className="registration-status registered">
                               <span className="status-icon">✅</span>
@@ -742,7 +919,7 @@ function AthleteProfile({ user, signOut }) {
           padding: 20px;
         }
         .profile-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
           color: white;
           padding: 30px;
           border-radius: 10px;
@@ -799,7 +976,7 @@ function AthleteProfile({ user, signOut }) {
           border-radius: 5px;
         }
         .profile-nav button.active {
-          background: #667eea;
+          background: #ff6b35;
           color: white;
         }
         .stats-grid {
@@ -983,6 +1160,20 @@ function AthleteProfile({ user, signOut }) {
         .register-btn:hover {
           background: #218838;
         }
+        .view-details-btn {
+          background: #007bff !important;
+          color: white !important;
+          padding: 10px 20px !important;
+          border: none !important;
+          border-radius: 4px !important;
+          cursor: pointer !important;
+          font-weight: bold !important;
+          margin-right: 10px !important;
+          font-size: 14px !important;
+        }
+        .view-details-btn:hover {
+          background: #0056b3 !important;
+        }
         .no-category-message {
           color: #dc3545;
           font-style: italic;
@@ -1152,7 +1343,7 @@ function AthleteProfile({ user, signOut }) {
           margin-top: 15px;
         }
         .rank-badge {
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: linear-gradient(135deg, #ff6b35, #f7931e);
           color: white;
           padding: 6px 12px;
           border-radius: 20px;
@@ -1482,7 +1673,7 @@ function AthleteProfile({ user, signOut }) {
           overflow: hidden;
         }
         .event-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
           color: white;
           padding: 20px;
         }
@@ -1559,6 +1750,210 @@ function AthleteProfile({ user, signOut }) {
             align-items: flex-start;
             gap: 8px;
           }
+        }
+        .notification {
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          padding: 16px 24px;
+          border-radius: 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          z-index: 9999;
+          animation: slideIn 0.3s ease-out;
+          font-weight: 500;
+        }
+        .notification.success {
+          background: #28a745;
+          color: white;
+        }
+        .notification.error {
+          background: #dc3545;
+          color: white;
+        }
+        @keyframes slideIn {
+          from {
+            transform: translateX(400px);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+
+        /* Event Details Modal */
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 10000;
+        }
+        .modal-content {
+          background: white;
+          border-radius: 12px;
+          max-width: 800px;
+          width: 90%;
+          max-height: 80vh;
+          overflow-y: auto;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 20px 30px;
+          border-bottom: 1px solid #eee;
+        }
+        .modal-header h2 {
+          margin: 0;
+          color: #2c3e50;
+        }
+        .close-btn {
+          background: none;
+          border: none;
+          font-size: 24px;
+          cursor: pointer;
+          color: #666;
+          padding: 0;
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .close-btn:hover {
+          color: #000;
+        }
+        .modal-body {
+          padding: 30px;
+        }
+        .event-info {
+          margin-bottom: 30px;
+          padding: 20px;
+          background: #f8f9fa;
+          border-radius: 8px;
+        }
+        .event-info p {
+          margin: 8px 0;
+          color: #495057;
+        }
+        .details-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 30px;
+        }
+        @media (max-width: 768px) {
+          .details-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        .detail-section h3 {
+          margin: 0 0 15px 0;
+          color: #2c3e50;
+          border-bottom: 2px solid #3498db;
+          padding-bottom: 8px;
+        }
+        .detail-list {
+          max-height: 300px;
+          overflow-y: auto;
+        }
+        .detail-item {
+          padding: 15px;
+          border: 1px solid #e9ecef;
+          border-radius: 8px;
+          margin-bottom: 10px;
+        }
+        .wod-item {
+          padding: 20px;
+        }
+        .detail-item strong {
+          color: #2c3e50;
+          font-size: 16px;
+        }
+        .detail-item p {
+          margin: 8px 0 0 0;
+          color: #6c757d;
+          font-size: 14px;
+        }
+        .wod-description {
+          font-size: 15px !important;
+          color: #495057 !important;
+          margin: 10px 0 !important;
+          line-height: 1.5;
+        }
+        .movements-list {
+          margin: 15px 0;
+          padding: 15px;
+          background: #f8f9fa;
+          border-radius: 6px;
+        }
+        .movements-list h4 {
+          margin: 0 0 10px 0;
+          color: #2c3e50;
+          font-size: 14px;
+        }
+        .movements-list ul {
+          margin: 0;
+          padding-left: 20px;
+        }
+        .movements-list li {
+          margin: 5px 0;
+          color: #495057;
+        }
+        .category-meta, .wod-meta {
+          display: flex;
+          gap: 10px;
+          margin-top: 8px;
+          font-size: 12px;
+          color: #6c757d;
+        }
+        .category-meta span, .wod-meta span {
+          background: #f8f9fa;
+          padding: 2px 8px;
+          border-radius: 12px;
+        }
+        .no-data {
+          text-align: center;
+          color: #6c757d;
+          font-style: italic;
+          padding: 20px;
+        }
+        .sign-in-notice {
+          margin-top: 30px;
+          padding: 25px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 12px;
+          text-align: center;
+          color: white;
+        }
+        .sign-in-notice h3 {
+          margin: 0 0 15px 0;
+          color: white;
+        }
+        .sign-in-notice p {
+          margin: 0 0 20px 0;
+          color: rgba(255, 255, 255, 0.9);
+        }
+        .signin-btn {
+          background: white;
+          color: #667eea;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 16px;
+        }
+        .signin-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         }
       `}</style>
     </div>

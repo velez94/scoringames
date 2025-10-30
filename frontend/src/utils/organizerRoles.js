@@ -75,7 +75,13 @@ export const hasPermission = (userRole, permission) => {
 };
 
 export const getOrganizerRole = (user) => {
-  // Check for super admin first
+  // Check for super admin by email or role
+  if (user?.attributes?.email === 'admin@athleon.fitness' || 
+      user?.attributes?.['custom:role'] === 'super_admin') {
+    return ORGANIZER_ROLES.SUPER_ADMIN;
+  }
+  
+  // Check for super admin attribute (legacy)
   if (user?.attributes?.['custom:isSuperAdmin'] === 'true') {
     return ORGANIZER_ROLES.SUPER_ADMIN;
   }

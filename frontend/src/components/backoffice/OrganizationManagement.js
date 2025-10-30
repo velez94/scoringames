@@ -10,6 +10,7 @@ function OrganizationManagement() {
   const { organizationId } = useParams();
   const navigate = useNavigate();
   const [members, setMembers] = useState([]);
+  const [events, setEvents] = useState([]);
   const [organizationDetails, setOrganizationDetails] = useState(null);
   const [creatorName, setCreatorName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,7 +19,7 @@ function OrganizationManagement() {
   const [message, setMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const isSuperAdmin = user?.attributes?.email === 'admin@scoringames.com';
+  const isSuperAdmin = user?.attributes?.email === 'admin@athleon.fitness';
   const isOwnerOrAdmin = selectedOrganization && ['owner', 'admin'].includes(selectedOrganization.role);
 
   // Handle URL parameter organization selection
@@ -45,6 +46,7 @@ function OrganizationManagement() {
     if (selectedOrganization && selectedOrganization.organizationId !== 'all') {
       fetchOrganizationDetails();
       fetchMembers();
+      fetchEvents();
     }
   }, [selectedOrganization]);
 
@@ -69,6 +71,19 @@ function OrganizationManagement() {
     } catch (error) {
       console.error('Error fetching members:', error);
       setMessage('Error loading members');
+    }
+  };
+
+  const fetchEvents = async () => {
+    try {
+      const response = await API.get('CalisthenicsAPI', '/competitions', {
+        queryStringParameters: {
+          organizationId: selectedOrganization.organizationId
+        }
+      });
+      setEvents(response || []);
+    } catch (error) {
+      console.error('Error fetching events:', error);
     }
   };
 
@@ -161,17 +176,27 @@ function OrganizationManagement() {
                 .filter(org => org.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                               org.organizationId.toLowerCase().includes(searchTerm.toLowerCase()))
                 .map(org => (
-                <div key={org.organizationId} className="organization-card" style={{
-                  border: '1px solid #e0e0e0',
-                  borderRadius: '8px',
-                  padding: '20px',
-                  background: '#ffffff',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                  transition: 'box-shadow 0.2s ease',
-                  cursor: 'pointer'
-                }}
-                onMouseEnter={(e) => e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)'}
-                onMouseLeave={(e) => e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)'}
+                <div 
+                  key={org.organizationId} 
+                  className="organization-card" 
+                  onClick={() => navigate(`/backoffice/organization/${org.organizationId}`)}
+                  style={{
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    background: '#ffffff',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
                 >
                   <h3 style={{margin: '0 0 15px 0', color: '#333', fontSize: '18px', fontWeight: '600'}}>{org.name}</h3>
                   <div style={{marginBottom: '10px'}}>
@@ -192,31 +217,17 @@ function OrganizationManagement() {
                       Super Admin
                     </span>
                   </div>
-                  <button 
-                    onClick={() => navigate(`/backoffice/organization/${org.organizationId}`)}
-                    style={{
-                      width: '100%',
-                      padding: '12px 20px',
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.transform = 'translateY(-1px)';
-                      e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.transform = 'translateY(0)';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                  >
-                    Manage Organization
-                  </button>
+                  <div style={{
+                    padding: '12px 20px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    textAlign: 'center'
+                  }}>
+                    View Details →
+                  </div>
                 </div>
               ))}
             </div>
@@ -239,7 +250,28 @@ function OrganizationManagement() {
 
   return (
     <div className="organization-management">
-      <h2>Organization Management</h2>
+      <div style={{display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px'}}>
+        <button
+          onClick={() => {
+            selectOrganization(organizations.find(o => o.organizationId === 'all'));
+            navigate('/backoffice/organization');
+          }}
+          style={{
+            padding: '8px 16px',
+            background: '#f0f0f0',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          ← Back to Organizations
+        </button>
+        <h2 style={{margin: 0}}>Organization Management</h2>
+      </div>
       
       {loading && <p>Loading...</p>}
       
@@ -432,6 +464,70 @@ function OrganizationManagement() {
             </table>
           )}
         </div>
+      </div>
+
+      {/* Events Section */}
+      <div className="events-section" style={{
+        background: '#ffffff',
+        border: '1px solid #e0e0e0',
+        borderRadius: '8px',
+        padding: '24px',
+        margin: '20px 0',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      }}>
+        <h3 style={{margin: '0 0 20px 0', color: '#333', fontSize: '20px', fontWeight: '600'}}>
+          Events ({events.length})
+        </h3>
+        
+        {events.length > 0 ? (
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px'}}>
+            {events.map(event => (
+              <div 
+                key={event.eventId}
+                onClick={() => navigate(`/backoffice/events/${event.eventId}`)}
+                style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: '#fafafa'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <h4 style={{margin: '0 0 8px 0', color: '#333', fontSize: '16px'}}>{event.name}</h4>
+                <div style={{fontSize: '13px', color: '#666', marginBottom: '4px'}}>
+                  📍 {event.location}
+                </div>
+                <div style={{fontSize: '13px', color: '#666', marginBottom: '8px'}}>
+                  📅 {new Date(event.startDate).toLocaleDateString()}
+                </div>
+                <span style={{
+                  display: 'inline-block',
+                  padding: '4px 8px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  background: event.published ? '#28a745' : '#6c757d',
+                  color: 'white'
+                }}>
+                  {event.published ? 'Published' : 'Draft'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{color: '#666', textAlign: 'center', padding: '20px'}}>
+            No events created yet for this organization
+          </p>
+        )}
       </div>
 
       {message && (

@@ -169,6 +169,33 @@ export class CalisthenicsAppStack extends cdk.Stack {
       sortKey: { name: 'score', type: dynamodb.AttributeType.NUMBER },
     });
 
+    // Scoring Systems table - Event-scoped scoring configurations
+    const scoringSystemsTable = new dynamodb.Table(this, 'ScoringSystemsTable', {
+      partitionKey: { name: 'eventId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'scoringSystemId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Exercise Library table - Global exercise definitions
+    const exerciseLibraryTable = new dynamodb.Table(this, 'ExerciseLibraryTable', {
+      partitionKey: { name: 'exerciseId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Leaderboard Cache table - Pre-calculated leaderboards
+    const leaderboardCacheTable = new dynamodb.Table(this, 'LeaderboardCacheTable', {
+      partitionKey: { name: 'leaderboardId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      timeToLiveAttribute: 'ttl',
+    });
+    leaderboardCacheTable.addGlobalSecondaryIndex({
+      indexName: 'event-leaderboards-index',
+      partitionKey: { name: 'eventId', type: dynamodb.AttributeType.STRING },
+    });
+
     // Sessions table - User session management with TTL
     const sessionsTable = new dynamodb.Table(this, 'SessionsTable', {
       partitionKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
@@ -283,7 +310,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const organizationsLambda = new lambda.Function(this, 'OrganizationsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'organizations.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/organizations'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       environment: {
@@ -306,8 +333,8 @@ export class CalisthenicsAppStack extends cdk.Stack {
     // Competitions service - Handles competitions and public events endpoints
     const competitionsLambda = new lambda.Function(this, 'CompetitionsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'competitions.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       description: 'Competitions service with public events endpoints - v2',
@@ -334,13 +361,14 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const eventsLambda = new lambda.Function(this, 'EventsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'events.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...commonEnv,
         EVENT_DAYS_TABLE: eventDaysTable.tableName,
         EVENT_IMAGES_BUCKET: eventImagesBucket.bucketName,
+        SCORING_SYSTEMS_LAMBDA_NAME: '', // Will be set after scoringSystemsLambda is created
       },
     });
     eventDaysTable.grantReadWriteData(eventsLambda);
@@ -349,79 +377,157 @@ export class CalisthenicsAppStack extends cdk.Stack {
     // Scores service
     const scoresLambda = new lambda.Function(this, 'ScoresLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'scores.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/scoring'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
-      description: 'Scores service with direct POST /scores endpoint - v3',
+      description: 'Scores service - v5 with RBAC authorization',
       environment: {
         ...commonEnv,
         SCORES_TABLE: scoresTable.tableName,
         ATHLETES_TABLE: athletesTable.tableName,
+        SCORING_SYSTEMS_TABLE: scoringSystemsTable.tableName,
+        ORGANIZATION_EVENTS_TABLE: organizationEventsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE: organizationMembersTable.tableName,
       },
     });
     scoresTable.grantReadWriteData(scoresLambda);
     athletesTable.grantReadData(scoresLambda);
+    scoringSystemsTable.grantReadData(scoresLambda);
+    organizationEventsTable.grantReadData(scoresLambda);
+    organizationMembersTable.grantReadData(scoresLambda);
     scoresLambda.addToRolePolicy(new iam.PolicyStatement({
       actions: ['events:PutEvents'],
       resources: ['*'],
     }));
 
+    // Scoring Systems service
+    const scoringSystemsLambda = new lambda.Function(this, 'ScoringSystemsLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'systems.handler',
+      code: lambda.Code.fromAsset('lambda/scoring'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...commonEnv,
+        SCORING_SYSTEMS_TABLE: scoringSystemsTable.tableName,
+      },
+    });
+    scoringSystemsTable.grantReadWriteData(scoringSystemsLambda);
+    
+    // Update eventsLambda environment with scoringSystemsLambda name
+    eventsLambda.addEnvironment('SCORING_SYSTEMS_LAMBDA_NAME', scoringSystemsLambda.functionName);
+    scoringSystemsLambda.grantInvoke(eventsLambda);
+
+    // Exercise Library service
+    const exerciseLibraryLambda = new lambda.Function(this, 'ExerciseLibraryLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'exercise-library.handler',
+      code: lambda.Code.fromAsset('lambda/scoring'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...commonEnv,
+        EXERCISE_LIBRARY_TABLE: exerciseLibraryTable.tableName,
+      },
+    });
+    exerciseLibraryTable.grantReadWriteData(exerciseLibraryLambda);
+
+    // Score Calculator service (stateless calculation engine)
+    const scoreCalculatorLambda = new lambda.Function(this, 'ScoreCalculatorLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'score-calculator.handler',
+      code: lambda.Code.fromAsset('lambda/scoring'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...commonEnv,
+      },
+    });
+
+    // Leaderboard API service
+    const leaderboardApiLambda = new lambda.Function(this, 'LeaderboardApiLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'leaderboard-api.handler',
+      code: lambda.Code.fromAsset('lambda/scoring'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...commonEnv,
+        LEADERBOARD_TABLE: leaderboardCacheTable.tableName,
+        SCORES_TABLE: scoresTable.tableName,
+      },
+    });
+    leaderboardCacheTable.grantReadData(leaderboardApiLambda);
+    scoresTable.grantReadData(leaderboardApiLambda);
+
     // Categories service
     const categoriesLambda = new lambda.Function(this, 'CategoriesLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'categories.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/categories'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
-      description: 'Categories service with fixed CORS and auth - v4',
+      description: 'Categories service - v5 with RBAC authorization',
       environment: {
         ...commonEnv,
         CATEGORIES_TABLE: categoriesTable.tableName,
         ORGANIZATION_EVENTS_TABLE: organizationEventsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE: organizationMembersTable.tableName,
       },
     });
     categoriesTable.grantReadWriteData(categoriesLambda);
     organizationEventsTable.grantReadData(categoriesLambda);
+    organizationMembersTable.grantReadData(categoriesLambda);
 
     // WODs service
     const wodsLambda = new lambda.Function(this, 'WodsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'wods.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/wods'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
-      description: 'WODs service - DDD compliant - v3',
+      description: 'WODs service - v6.2 with organization-only editing restrictions',
       environment: {
         ...commonEnv,
         WODS_TABLE: wodsTable.tableName,
+        ORGANIZATIONS_TABLE: organizationsTable.tableName,
+        ORGANIZATION_EVENTS_TABLE: organizationEventsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE: organizationMembersTable.tableName,
+        SCORES_TABLE: scoresTable.tableName,
       },
     });
     wodsTable.grantReadWriteData(wodsLambda);
+    organizationsTable.grantReadData(wodsLambda);
+    organizationEventsTable.grantReadData(wodsLambda);
+    organizationMembersTable.grantReadData(wodsLambda);
+    scoresTable.grantReadData(wodsLambda);
 
     // Users service
     const usersLambda = new lambda.Function(this, 'UsersLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'users.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/athletes'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,  // Prevent runaway costs
-      description: 'Users service with athlete profile update support - v2',
+      description: 'Athletes service - v3 with RBAC authorization',
       environment: {
         ...commonEnv,
         ATHLETES_TABLE: athletesTable.tableName,
         ATHLETE_EVENTS_TABLE: athleteEventsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE: organizationMembersTable.tableName,
       },
     });
     athletesTable.grantReadWriteData(usersLambda);
     athleteEventsTable.grantReadWriteData(usersLambda);
+    organizationMembersTable.grantReadData(usersLambda);
 
     // Analytics service
     const analyticsLambda = new lambda.Function(this, 'AnalyticsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'analytics.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/shared'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 5,
@@ -451,7 +557,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const sessionsLambda = new lambda.Function(this, 'SessionsLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'sessions.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/scheduling'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
@@ -466,7 +572,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const getEventDataLambda = new lambda.Function(this, 'GetEventDataLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'get-event-data.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/shared'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       environment: {
@@ -479,7 +585,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const getAthletesDataLambda = new lambda.Function(this, 'GetAthletesDataLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'get-athletes-data.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/athletes'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       environment: {
@@ -492,7 +598,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const getCategoriesDataLambda = new lambda.Function(this, 'GetCategoriesDataLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'get-categories-data.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/categories'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       environment: {
@@ -504,7 +610,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const getWodsDataLambda = new lambda.Function(this, 'GetWodsDataLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'get-wods-data.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/wods'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       environment: {
@@ -516,7 +622,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const generateScheduleLambda = new lambda.Function(this, 'GenerateScheduleLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'generate-schedule.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 512,
       timeout: cdk.Duration.minutes(1),
       environment: {
@@ -589,7 +695,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const schedulerLambda = new lambda.Function(this, 'SchedulerLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'scheduler-stepfunctions.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 512,
       timeout: cdk.Duration.seconds(30),
       description: 'DDD-compliant Competition Scheduler Service - v8.0',
@@ -613,11 +719,36 @@ export class CalisthenicsAppStack extends cdk.Stack {
       resources: [`arn:aws:events:${this.region}:${this.account}:event-bus/default`]
     }));
 
+    // DDD Scheduler Lambda (separate from Step Functions scheduler)
+    const dddSchedulerLambda = new lambda.Function(this, 'DDDSchedulerLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'ddd-handler.handler',
+      code: lambda.Code.fromAsset('lambda/scheduling'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      description: 'DDD Scheduler - v2 with RBAC authorization',
+      environment: {
+        ...commonEnv,
+        SCHEDULES_TABLE: schedulesTable.tableName,
+        HEATS_TABLE: heatsTable.tableName,
+        CLASSIFICATION_FILTERS_TABLE: classificationFiltersTable.tableName,
+        ORGANIZATION_EVENTS_TABLE: organizationEventsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE: organizationMembersTable.tableName,
+      },
+    });
+    
+    // Grant permissions for DDD scheduler
+    schedulesTable.grantReadWriteData(dddSchedulerLambda);
+    heatsTable.grantReadWriteData(dddSchedulerLambda);
+    classificationFiltersTable.grantReadWriteData(dddSchedulerLambda);
+    organizationEventsTable.grantReadData(dddSchedulerLambda);
+    organizationMembersTable.grantReadData(dddSchedulerLambda);
+
     // Public Schedules Lambda for athlete access (uses DDD scheduler for published schedules)
     const publicSchedulesLambda = new lambda.Function(this, 'PublicSchedulesLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'public-schedules-ddd.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       description: 'Public schedules service for athlete access - DDD v2.0',
@@ -633,7 +764,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const eventsEventBridgeHandler = new lambda.Function(this, 'EventsEventBridgeHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'events-eventbridge-handler.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       description: 'Events domain EventBridge handler - v2',
@@ -655,7 +786,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const athletesEventBridgeHandler = new lambda.Function(this, 'AthletesEventBridgeHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'athletes-eventbridge-handler.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       description: 'Athletes domain EventBridge handler - v1',
@@ -677,7 +808,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const categoriesEventBridgeHandler = new lambda.Function(this, 'CategoriesEventBridgeHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'categories-eventbridge-handler.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       description: 'Categories domain EventBridge handler - v1',
@@ -697,7 +828,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const wodsEventBridgeHandler = new lambda.Function(this, 'WodsEventBridgeHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'wods-eventbridge-handler.handler',
-      code: lambda.Code.fromAsset('lambda'),
+      code: lambda.Code.fromAsset('lambda/competitions'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
       description: 'WODs domain EventBridge handler - v1',
@@ -768,26 +899,24 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const leaderboardCalculator = new EventbridgeToLambda(this, 'LeaderboardCalculator', {
       lambdaFunctionProps: {
         runtime: lambda.Runtime.NODEJS_18_X,
-        handler: 'leaderboard-calculator.handler',
-        code: lambda.Code.fromAsset('lambda'),
+        handler: 'leaderboard-calculator-enhanced.handler',
+        code: lambda.Code.fromAsset('lambda/competitions'),
         memorySize: 512,
         timeout: cdk.Duration.minutes(5),
         environment: {
           SCORES_TABLE: scoresTable.tableName,
-          ATHLETES_TABLE: athletesTable.tableName,
-          EVENTS_TABLE: eventsTable.tableName,
+          LEADERBOARD_TABLE: leaderboardCacheTable.tableName,
         },
       },
       eventRuleProps: {
         eventPattern: {
-          source: ['calisthenics.scores'],
-          detailType: ['Score Updated', 'Score Created'],
+          source: ['scoringames.scores'],
+          detailType: ['ScoreCalculated'],
         },
       },
     });
     scoresTable.grantReadData(leaderboardCalculator.lambdaFunction);
-    athletesTable.grantReadData(leaderboardCalculator.lambdaFunction);
-    eventsTable.grantReadData(leaderboardCalculator.lambdaFunction);
+    leaderboardCacheTable.grantReadWriteData(leaderboardCalculator.lambdaFunction);
 
     // API Gateway with microservices routing
     const api = new apigateway.RestApi(this, 'CalisthenicsApi', {
@@ -811,7 +940,13 @@ export class CalisthenicsAppStack extends cdk.Stack {
     });
 
     // Public endpoint for published events - /public/events (no auth required)
-    const publicResource = api.root.addResource('public');
+    const publicResource = api.root.addResource('public', {
+      defaultCorsPreflightOptions: {
+        allowOrigins: ['*'],
+        allowMethods: ['GET', 'POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      }
+    });
     const publicEvents = publicResource.addResource('events');
     publicEvents.addMethod('GET', new apigateway.LambdaIntegration(competitionsLambda));
     const publicEventsProxy = publicEvents.addResource('{proxy+}');
@@ -851,6 +986,16 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const scoresProxy = scores.addResource('{proxy+}');
     scoresProxy.addMethod('ANY', new apigateway.LambdaIntegration(scoresLambda), { authorizer: cognitoAuthorizer });
 
+    // Exercise Library microservice - /exercises/*
+    const exercises = api.root.addResource('exercises');
+    exercises.addMethod('ANY', new apigateway.LambdaIntegration(exerciseLibraryLambda), { authorizer: cognitoAuthorizer });
+    const exercisesProxy = exercises.addResource('{proxy+}');
+    exercisesProxy.addMethod('ANY', new apigateway.LambdaIntegration(exerciseLibraryLambda), { authorizer: cognitoAuthorizer });
+
+    // Leaderboard API - /leaderboard (public endpoint)
+    const leaderboard = api.root.addResource('leaderboard');
+    leaderboard.addMethod('GET', new apigateway.LambdaIntegration(leaderboardApiLambda));
+
     // Categories microservice - /categories/*
     const categories = api.root.addResource('categories');
     categories.addMethod('ANY', new apigateway.LambdaIntegration(categoriesLambda), { authorizer: cognitoAuthorizer });
@@ -886,13 +1031,55 @@ export class CalisthenicsAppStack extends cdk.Stack {
     const sessionsProxy = sessions.addResource('{proxy+}');
     sessionsProxy.addMethod('ANY', new apigateway.LambdaIntegration(sessionsLambda), { authorizer: cognitoAuthorizer });
 
-    // Scheduler microservice - /scheduler/* (integrated with competitions)
-    // Note: Scheduler routes are handled within competitions Lambda for /competitions/{eventId}/schedule
-    // This provides a dedicated scheduler endpoint for advanced operations
+    // Scheduler microservice - /scheduler/* (DDD scheduler with RBAC)
     const scheduler = api.root.addResource('scheduler');
-    scheduler.addMethod('ANY', new apigateway.LambdaIntegration(schedulerLambda), { authorizer: cognitoAuthorizer });
+    scheduler.addMethod('OPTIONS', new apigateway.MockIntegration({
+      integrationResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Headers': "'Content-Type,Authorization'",
+          'method.response.header.Access-Control-Allow-Methods': "'GET,POST,PUT,DELETE,OPTIONS'",
+          'method.response.header.Access-Control-Allow-Origin': "'*'"
+        }
+      }],
+      requestTemplates: {
+        'application/json': '{"statusCode": 200}'
+      }
+    }), {
+      methodResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Headers': true,
+          'method.response.header.Access-Control-Allow-Methods': true,
+          'method.response.header.Access-Control-Allow-Origin': true
+        }
+      }]
+    });
+    scheduler.addMethod('ANY', new apigateway.LambdaIntegration(dddSchedulerLambda), { authorizer: cognitoAuthorizer });
     const schedulerProxy = scheduler.addResource('{proxy+}');
-    schedulerProxy.addMethod('ANY', new apigateway.LambdaIntegration(schedulerLambda), { authorizer: cognitoAuthorizer });
+    schedulerProxy.addMethod('OPTIONS', new apigateway.MockIntegration({
+      integrationResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Headers': "'Content-Type,Authorization'",
+          'method.response.header.Access-Control-Allow-Methods': "'GET,POST,PUT,DELETE,OPTIONS'",
+          'method.response.header.Access-Control-Allow-Origin': "'*'"
+        }
+      }],
+      requestTemplates: {
+        'application/json': '{"statusCode": 200}'
+      }
+    }), {
+      methodResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Headers': true,
+          'method.response.header.Access-Control-Allow-Methods': true,
+          'method.response.header.Access-Control-Allow-Origin': true
+        }
+      }]
+    });
+    schedulerProxy.addMethod('ANY', new apigateway.LambdaIntegration(dddSchedulerLambda), { authorizer: cognitoAuthorizer });
 
     // Analytics microservice - /analytics/*
     const analytics = api.root.addResource('analytics');

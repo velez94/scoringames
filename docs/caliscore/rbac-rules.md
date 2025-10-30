@@ -3,7 +3,7 @@
 ## User Roles Hierarchy
 
 ### Super Admin
-- **Email**: `admin@scoringames.com`
+- **Email**: `admin@athleon.fitness`
 - **Scope**: System-wide access
 - **Permissions**: All operations across all organizations and events
 
@@ -54,7 +54,7 @@
 
 ### 1. Super Admin Check
 ```javascript
-const isSuperAdmin = userEmail === 'admin@scoringames.com';
+const isSuperAdmin = userEmail === 'admin@athleon.fitness';
 if (isSuperAdmin) return { hasAccess: true, role: 'super_admin' };
 ```
 

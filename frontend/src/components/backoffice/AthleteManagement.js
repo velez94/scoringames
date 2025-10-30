@@ -11,6 +11,7 @@ function AthleteManagement() {
   const [expandedAthlete, setExpandedAthlete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [filterEvent, setFilterEvent] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
@@ -25,20 +26,82 @@ function AthleteManagement() {
   });
 
   useEffect(() => {
-    fetchAthletes();
-    fetchCompetitions();
-  }, []);
+    if (selectedOrganization) {
+      fetchCompetitions();
+    }
+  }, [selectedOrganization]);
 
   useEffect(() => {
     if (events.length > 0) {
       fetchCategories();
+      fetchAthletes();
     }
   }, [events]);
 
   const fetchAthletes = async () => {
+    if (!selectedOrganization) return;
+    
     try {
-      const response = await API.get('CalisthenicsAPI', '/athletes');
-      setAthletes(response || []);
+      console.log('Fetching athletes for organization:', selectedOrganization.organizationId);
+      console.log('Available events:', events);
+      
+      // Get all athletes registered for any event in this organization
+      const allAthletes = [];
+      
+      for (const event of events) {
+        try {
+          console.log(`Fetching athletes for event: ${event.eventId}`);
+          const eventAthletes = await API.get('CalisthenicsAPI', `/athletes?eventId=${event.eventId}`);
+          console.log(`Athletes found for ${event.eventId}:`, eventAthletes?.length || 0);
+          
+          if (eventAthletes && eventAthletes.length > 0) {
+            allAthletes.push(...eventAthletes);
+          }
+        } catch (error) {
+          // Skip events that fail (deleted, unauthorized, etc.)
+          console.warn(`Skipping athletes for event ${event.eventId}:`, error.response?.status || error.message);
+        }
+      }
+      
+      console.log('Total athletes found:', allAthletes.length);
+      
+      // Remove duplicates by userId and merge event registrations
+      const athleteMap = new Map();
+      allAthletes.forEach(athlete => {
+        const existing = athleteMap.get(athlete.userId);
+        if (existing) {
+          // Merge event registrations
+          if (!existing.events) existing.events = [];
+          existing.events.push({
+            eventId: athlete.eventId,
+            eventName: athlete.eventName || events.find(e => e.eventId === athlete.eventId)?.name,
+            categoryId: athlete.categoryId,
+            registrationDate: athlete.registrationDate
+          });
+        } else {
+          athleteMap.set(athlete.userId, {
+            ...athlete,
+            events: [{
+              eventId: athlete.eventId,
+              eventName: athlete.eventName || events.find(e => e.eventId === athlete.eventId)?.name,
+              categoryId: athlete.categoryId,
+              registrationDate: athlete.registrationDate
+            }]
+          });
+        }
+      });
+      
+      const uniqueAthletes = Array.from(athleteMap.values());
+      console.log('Unique athletes after deduplication:', uniqueAthletes.length);
+      console.log('Athletes data:', uniqueAthletes.map(a => ({
+        name: `${a.firstName} ${a.lastName}`,
+        userId: a.userId,
+        eventId: a.eventId,
+        events: a.events,
+        categoryId: a.categoryId
+      })));
+      
+      setAthletes(uniqueAthletes);
     } catch (error) {
       console.error('Error fetching athletes:', error);
       setAthletes([]);
@@ -47,16 +110,25 @@ function AthleteManagement() {
 
   const fetchCategories = async () => {
     try {
-      // Get categories for all events
+      console.log('Fetching categories for events:', events);
+      // Get categories for all events, but skip events that return 403/404
       const allCategories = [];
       for (const event of events) {
         try {
+          console.log(`Fetching categories for event: ${event.eventId}`);
           const eventCategories = await API.get('CalisthenicsAPI', `/categories?eventId=${event.eventId}`);
+          console.log(`Categories found for ${event.eventId}:`, eventCategories?.length || 0, eventCategories);
           allCategories.push(...(eventCategories || []));
         } catch (error) {
+          // Skip events that return 403 (deleted/unauthorized) or 404 (not found)
+          if (error.response?.status === 403 || error.response?.status === 404) {
+            console.warn(`Skipping categories for event ${event.eventId}: ${error.response?.status}`);
+            continue;
+          }
           console.error(`Error fetching categories for event ${event.eventId}:`, error);
         }
       }
+      console.log('Total categories loaded:', allCategories.length, allCategories);
       setCategories(allCategories);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -65,14 +137,20 @@ function AthleteManagement() {
   };
 
   const fetchCompetitions = async () => {
+    if (!selectedOrganization) return;
+    
     try {
-      // Fetch all published events since athletes can register for any event
-      const response = await API.get('CalisthenicsAPI', '/public/events');
+      // Fetch organization's events, not public events
+      const response = await API.get('CalisthenicsAPI', '/competitions', {
+        queryStringParameters: { 
+          organizationId: selectedOrganization.organizationId 
+        }
+      });
       const comps = Array.isArray(response) ? response : [];
-      console.log('Competitions loaded:', comps);
+      console.log('Organization competitions loaded:', comps);
       setCompetitions(comps);
     } catch (error) {
-      console.error('Error fetching events:', error);
+      console.error('Error fetching organization events:', error);
       setCompetitions([]);
     }
   };
@@ -160,19 +238,7 @@ function AthleteManagement() {
     setShowModal(true);
   };
 
-  const handleDelete = async (athleteId) => {
-    if (!window.confirm('Are you sure you want to delete this athlete?')) {
-      return;
-    }
-
-    try {
-      await API.del('CalisthenicsAPI', `/athletes/${athleteId}`);
-      await fetchAthletes();
-    } catch (error) {
-      console.error('Error deleting athlete:', error);
-      alert('Error deleting athlete');
-    }
-  };
+  // Removed handleDelete - event organizers cannot delete athletes from platform
 
   const handleReset = async (athlete) => {
     if (window.confirm(`Reset ${athlete.firstName} ${athlete.lastName}? This will force them to complete the welcome setup again.`)) {
@@ -269,9 +335,35 @@ function AthleteManagement() {
     const matchesSearch = fullName.includes(searchTerm.toLowerCase()) ||
                          athlete.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (athlete.alias && athlete.alias.toLowerCase().includes(searchTerm.toLowerCase()));
+    
     const matchesCategory = !filterCategory || athlete.categoryId === filterCategory;
-    return matchesSearch && matchesCategory;
+    
+    // Fix: Check both direct eventId and events array
+    const matchesEvent = !filterEvent || 
+                        athlete.eventId === filterEvent || 
+                        (athlete.events && athlete.events.some(e => e.eventId === filterEvent));
+    
+    console.log('Filtering athlete:', {
+      name: fullName,
+      eventId: athlete.eventId,
+      events: athlete.events,
+      eventsDetail: athlete.events?.map(e => ({ eventId: e.eventId, eventName: e.eventName })),
+      eventsRaw: JSON.stringify(athlete.events),
+      filterEvent,
+      matchesSearch,
+      matchesCategory,
+      matchesEvent,
+      finalResult: matchesSearch && matchesCategory && matchesEvent
+    });
+    
+    return matchesSearch && matchesCategory && matchesEvent;
   });
+
+  console.log('Final filtered athletes count:', filteredAthletes.length);
+  console.log('Filtered athletes:', filteredAthletes.map(a => ({ 
+    name: `${a.firstName} ${a.lastName}`, 
+    athleteId: a.athleteId || a.userId 
+  })));
 
   return (
     <div className="athlete-management">
@@ -303,6 +395,16 @@ function AthleteManagement() {
           <option value="">All Categories</option>
           {categories.map(category => (
             <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+          ))}
+        </select>
+        <select
+          value={filterEvent}
+          onChange={(e) => setFilterEvent(e.target.value)}
+          className="filter-select"
+        >
+          <option value="">All Events</option>
+          {events.map(event => (
+            <option key={event.eventId} value={event.eventId}>{event.name}</option>
           ))}
         </select>
       </div>
@@ -368,12 +470,7 @@ function AthleteManagement() {
                         >
                           Reset
                       </button>
-                      <button 
-                        onClick={() => handleDelete(athlete.athleteId)}
-                        className="btn-sm btn-danger"
-                      >
-                        Delete
-                      </button>
+                      {/* Removed delete button - event organizers cannot delete athletes from platform */}
                     </div>
                   </td>
                 </tr>
@@ -479,7 +576,17 @@ function AthleteManagement() {
 
         {filteredAthletes.length === 0 && (
           <div className="no-data">
-            No athletes found matching your criteria.
+            <p>No athletes found matching your criteria.</p>
+            <div style={{fontSize: '12px', color: '#666', marginTop: '10px'}}>
+              <p>Debug Info:</p>
+              <p>Total athletes loaded: {athletes.length}</p>
+              <p>Organization: {selectedOrganization?.name}</p>
+              <p>Events: {events.length}</p>
+              <p>Categories: {categories.length}</p>
+              {athletes.length === 0 && events.length > 0 && (
+                <p style={{color: 'orange'}}>No athletes registered for any events in this organization</p>
+              )}
+            </div>
           </div>
         )}
       </div>

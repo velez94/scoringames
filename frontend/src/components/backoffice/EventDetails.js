@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import CompetitionScheduler from '../CompetitionScheduler';
+import ScoringSystemManager from './ScoringSystemManager';
 
 function EventDetails() {
-  const { eventId } = useParams();
+  const { eventId, scheduleId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [selectedSchedule, setSelectedSchedule] = useState(null);
@@ -17,23 +18,106 @@ function EventDetails() {
   const [wods, setWods] = useState([]);
   const [categories, setCategories] = useState([]);
   const [athletes, setAthletes] = useState([]);
+  const [exercises, setExercises] = useState([]);
   const [athleteSearch, setAthleteSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+
+  // Global advanced scoring system
+  const globalScoringSystem = {
+    type: 'advanced',
+    config: {
+      timeBonuses: { 1: 10, 2: 7, 3: 5 }
+    }
+  };
 
   useEffect(() => {
     if (eventId) {
       fetchEventDetails();
       fetchEventDays();
-      fetchCategories();
       fetchAthletes();
+      fetchExercises();
     }
   }, [eventId, location.pathname]); // Add location.pathname to refresh on navigation
+
+  useEffect(() => {
+    if (scheduleId) {
+      fetchScheduleById(scheduleId);
+    } else {
+      setSelectedSchedule(null);
+    }
+  }, [scheduleId]);
+
+  const fetchScheduleById = async (id) => {
+    if (!id || id === 'undefined') {
+      console.log('⚠️ Invalid schedule ID, skipping fetch');
+      return;
+    }
+    
+    try {
+      const response = await API.get('CalisthenicsAPI', `/scheduler/${eventId}/${id}`);
+      setSelectedSchedule(response);
+      if (response && response.scheduleId && response.scheduleId !== 'undefined') {
+        fetchScheduleDetails(response);
+      }
+    } catch (error) {
+      console.error('Error fetching schedule:', error);
+    }
+  };
+
+  const togglePublishStatus = async () => {
+    try {
+      await API.put('CalisthenicsAPI', `/competitions/${eventId}`, {
+        body: {
+          ...event,
+          published: !event.published
+        }
+      });
+      
+      // Update local state
+      setEvent(prev => ({ ...prev, published: !prev.published }));
+    } catch (error) {
+      console.error('Error updating publish status:', error);
+      alert('Failed to update publish status');
+    }
+  };
 
   const fetchEventDetails = async () => {
     try {
       const response = await API.get('CalisthenicsAPI', `/competitions/${eventId}`);
       setEvent(response);
+      
+      // Try both approaches: event record wods field AND separate WODs query
+      const eventWods = response.wods || response.workouts || [];
+      const linkedWods = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`);
+      
+      // Combine both sources and deduplicate by wodId
+      const allWods = [...eventWods, ...(linkedWods || [])];
+      const uniqueWods = allWods.reduce((acc, wod) => {
+        if (!acc.find(w => w.wodId === wod.wodId)) {
+          acc.push(wod);
+        }
+        return acc;
+      }, []);
+      
+      setWods(uniqueWods);
+
+      // Use categories from event record if available
+      const eventCategories = response.categories || [];
+      if (eventCategories.length > 0) {
+        // Filter to only get objects (not strings) and valid category objects
+        const validCategories = eventCategories.filter(category => 
+          typeof category === 'object' && 
+          category !== null && 
+          category.categoryId && 
+          category.name
+        );
+        setCategories(validCategories);
+      } else {
+        // Fallback to fetching categories linked to event
+        const linkedCategories = await API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`);
+        setCategories(linkedCategories || []);
+      }
     } catch (error) {
       console.error('Error fetching event:', error);
     }
@@ -41,25 +125,10 @@ function EventDetails() {
 
   const fetchEventDays = async () => {
     try {
-      const days = await API.get('CalisthenicsAPI', `/events/${eventId}/days`);
+      const days = await API.get('CalisthenicsAPI', `/competitions/${eventId}/days`);
       setEventDays(days || []);
-      
-      // Fetch WODs for the event (not by day)
-      const eventWods = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`);
-      setWods(eventWods || []);
     } catch (error) {
       console.error('Error fetching event days:', error);
-    }
-  };
-
-  const fetchCategories = async () => {
-    try {
-      const eventCategories = await API.get('CalisthenicsAPI', `/categories?eventId=${eventId}`);
-      console.log('Fetched categories with quotas:', eventCategories);
-      setCategories(eventCategories || []);
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-      setCategories([]);
     }
   };
 
@@ -76,8 +145,63 @@ function EventDetails() {
     }
   };
 
-  const fetchScheduleDetails = async (schedule) => {
+  const fetchExercises = async () => {
     try {
+      const response = await API.get('CalisthenicsAPI', '/exercises');
+      setExercises(response || []);
+    } catch (error) {
+      console.error('Error fetching exercises:', error);
+    }
+  };
+
+  const calculateWodMaxScore = (wod) => {
+    if (!wod.movements?.length || !exercises.length) {
+      return null;
+    }
+
+    let totalEDS = 0;
+    
+    wod.movements.forEach(movement => {
+      const exercise = exercises.find(e => 
+        e.exerciseId === movement.exerciseId || 
+        e.name.toLowerCase() === movement.exercise?.toLowerCase()
+      );
+      
+      if (!exercise) return;
+
+      const reps = parseInt(movement.reps) || 1;
+      const weight = parseFloat(movement.weight?.replace(/[^\d.]/g, '')) || 0;
+      
+      let eds = exercise.baseScore * reps;
+      
+      exercise.modifiers?.forEach(mod => {
+        if (mod.type === 'weight' && weight > 0) {
+          eds += Math.floor(weight / mod.increment) * mod.points * reps;
+        }
+      });
+      
+      totalEDS += eds;
+    });
+
+    if (totalEDS === 0) return null;
+
+    const totalScore = totalEDS * 5;
+    const timeBonus = globalScoringSystem.config.timeBonuses[1];
+    const maxScore = totalScore + timeBonus;
+    
+    return { maxScore, totalEDS, timeBonus };
+  };
+
+  const fetchScheduleDetails = async (schedule) => {
+    if (!schedule || !schedule.scheduleId || schedule.scheduleId === 'undefined') {
+      console.log('⚠️ No valid schedule provided, skipping fetch');
+      setSelectedSchedule(null);
+      return;
+    }
+    
+    try {
+      console.log('🔍 Fetching schedule details for event:', eventId);
+      
       // Fetch athletes, categories, and WODs for the schedule
       const [athletesRes, categoriesRes, wodsRes] = await Promise.all([
         API.get('CalisthenicsAPI', `/athletes?eventId=${eventId}`),
@@ -85,15 +209,23 @@ function EventDetails() {
         API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`)
       ]);
 
-      // Create lookup maps - try both userId and athleteId as keys
+      console.log('✅ Athletes fetched:', athletesRes.length, athletesRes);
+      console.log('✅ Categories fetched:', categoriesRes.length);
+      console.log('✅ WODs fetched:', wodsRes.length);
+
+      // Create lookup maps with multiple key formats
       const athletesMap = {};
       athletesRes.forEach(athlete => {
-        athletesMap[athlete.userId] = athlete;
-        athletesMap[athlete.athleteId] = athlete; // Also map by athleteId if different
-        // Handle case where schedule uses different ID format
-        if (athlete.firstName && athlete.lastName) {
-          athletesMap[`athlete-${athlete.userId}`] = athlete;
-        }
+        const keys = [
+          athlete.userId,
+          athlete.athleteId,
+          `athlete-${athlete.userId}`,
+          athlete.userId?.replace('athlete-', '')
+        ].filter(Boolean);
+        
+        keys.forEach(key => {
+          athletesMap[key] = athlete;
+        });
       });
 
       const categoriesMap = {};
@@ -106,21 +238,22 @@ function EventDetails() {
         wodsMap[wod.wodId] = wod;
       });
 
-      console.log('Athletes loaded:', athletesRes.length, athletesMap);
-      console.log('Full schedule structure:', schedule);
-      console.log('Schedule days:', schedule.days);
+      console.log('📊 Athletes map created with keys:', Object.keys(athletesMap).slice(0, 10));
+      console.log('📋 Full schedule structure:', JSON.stringify(schedule, null, 2));
       
-      // Better debugging of schedule structure
-      if (schedule.days && schedule.days[0]) {
-        console.log('First day sessions:', schedule.days[0].sessions);
-        if (schedule.days[0].sessions && schedule.days[0].sessions[0]) {
-          console.log('First session:', schedule.days[0].sessions[0]);
-          console.log('First session heats:', schedule.days[0].sessions[0].heats);
-          console.log('First session matches:', schedule.days[0].sessions[0].matches);
-          console.log('First session athleteSchedule:', schedule.days[0].sessions[0].athleteSchedule);
-          if (schedule.days[0].sessions[0].matches && schedule.days[0].sessions[0].matches[0]) {
-            console.log('First match:', schedule.days[0].sessions[0].matches[0]);
-          }
+      // Check first match/heat athlete IDs
+      if (schedule.days?.[0]?.sessions?.[0]) {
+        const firstSession = schedule.days[0].sessions[0];
+        console.log('🔍 First session structure:', JSON.stringify(firstSession, null, 2));
+        if (firstSession.matches?.[0]) {
+          console.log('🎯 First match full object:', firstSession.matches[0]);
+          console.log('🎯 First match athlete IDs:', firstSession.matches[0].athlete1Id, firstSession.matches[0].athlete2Id);
+          console.log('🔎 Athlete 1 found:', athletesMap[firstSession.matches[0].athlete1Id]);
+          console.log('🔎 Athlete 2 found:', athletesMap[firstSession.matches[0].athlete2Id]);
+        }
+        if (firstSession.heats?.[0]?.athletes?.[0]) {
+          console.log('🎯 First heat athlete ID:', firstSession.heats[0].athletes[0]);
+          console.log('🔎 Athlete found:', athletesMap[firstSession.heats[0].athletes[0]]);
         }
       }
 
@@ -129,8 +262,8 @@ function EventDetails() {
       setScheduleWods(wodsMap);
       setSelectedSchedule(schedule);
     } catch (error) {
-      console.error('Error fetching schedule details:', error);
-      setSelectedSchedule(schedule); // Show schedule even if details fail
+      console.error('❌ Error fetching schedule details:', error);
+      setSelectedSchedule(schedule);
     }
   };
 
@@ -147,26 +280,11 @@ function EventDetails() {
   };
 
   const getAthleteName = (athleteId) => {
-    // Try multiple lookup strategies
-    let athlete = scheduleAthletes[athleteId] || 
-                  scheduleAthletes[`athlete-${athleteId}`] ||
-                  scheduleAthletes[athleteId.replace('athlete-', '')];
-    
-    if (athlete && athlete.firstName && athlete.lastName) {
+    const athlete = scheduleAthletes[athleteId];
+    if (athlete?.firstName && athlete?.lastName) {
       return `${athlete.firstName} ${athlete.lastName}`;
     }
-    
-    // Fallback: try to find by partial match
-    const athleteEntries = Object.entries(scheduleAthletes);
-    for (const [key, athleteData] of athleteEntries) {
-      if (key.includes(athleteId) || athleteId.includes(key)) {
-        if (athleteData.firstName && athleteData.lastName) {
-          return `${athleteData.firstName} ${athleteData.lastName}`;
-        }
-      }
-    }
-    
-    return athleteId; // Fallback to ID
+    return athleteId;
   };
 
   const getCategoryName = (categoryId) => {
@@ -175,25 +293,8 @@ function EventDetails() {
   };
 
   const getAthleteAlias = (athleteId) => {
-    const athlete = scheduleAthletes[athleteId] || 
-                    scheduleAthletes[`athlete-${athleteId}`] ||
-                    scheduleAthletes[athleteId.replace('athlete-', '')];
-    
-    if (athlete && athlete.alias) {
-      return athlete.alias;
-    }
-    
-    // Fallback: try to find by partial match
-    const athleteEntries = Object.entries(scheduleAthletes);
-    for (const [key, athleteData] of athleteEntries) {
-      if (key.includes(athleteId) || athleteId.includes(key)) {
-        if (athleteData.alias) {
-          return athleteData.alias;
-        }
-      }
-    }
-    
-    return athleteId; // Fallback to ID if no alias
+    const athlete = scheduleAthletes[athleteId];
+    return athlete?.alias || athleteId;
   };
 
   const getWodName = (wodId) => {
@@ -301,6 +402,109 @@ function EventDetails() {
 
   return (
     <div className="event-details">
+      {scheduleId && selectedSchedule ? (
+        // Schedule Details View
+        <div className="schedule-details-page">
+          <div className="schedule-page-header">
+            <button onClick={() => navigate(`/backoffice/events/${eventId}`)} className="btn-back">
+              <span>←</span> Back to Event
+            </button>
+            <h2>Schedule Details - {selectedSchedule.config?.competitionMode}</h2>
+          </div>
+          
+          <div className="schedule-info-card">
+            <div className="info-grid">
+              <div className="info-item">
+                <span className="info-label">Competition Mode:</span>
+                <span className="info-value">{selectedSchedule.config?.competitionMode}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Created:</span>
+                <span className="info-value">{new Date(selectedSchedule.generatedAt).toLocaleString()}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Status:</span>
+                <span className={`status-badge ${selectedSchedule.published ? 'published' : 'draft'}`}>
+                  {selectedSchedule.published ? 'Published' : 'Draft'}
+                </span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Total Days:</span>
+                <span className="info-value">{selectedSchedule.days?.length || 0}</span>
+              </div>
+            </div>
+          </div>
+
+          {selectedSchedule.days?.map((day, dayIndex) => {
+            const groupedSessions = groupSessionsByCategory(day.sessions);
+            return (
+              <div key={dayIndex} className="day-section">
+                <h3 className="day-title">Day {dayIndex + 1}</h3>
+                {Object.entries(groupedSessions).map(([categoryId, sessions]) => (
+                  <div key={categoryId} className="category-section">
+                    <h4 className="category-title">{scheduleCategories[categoryId]?.name || categoryId}</h4>
+                    <div className="sessions-grid">
+                      {sessions.map((session, sessionIndex) => (
+                        <div key={sessionIndex} className="session-card">
+                          <div className="session-header">
+                            <span className="session-time">⏰ {session.startTime}</span>
+                            <span className="session-wod">🏋️ {scheduleWods[session.wodId]?.name || session.wodId}</span>
+                          </div>
+                          <div className="heats-section">
+                            {session.heats && session.heats.length > 0 ? (
+                              session.heats.map((heat, heatIndex) => (
+                                <div key={heatIndex} className="heat-card">
+                                  <div className="heat-header">Heat {heatIndex + 1}</div>
+                                  <div className="athletes-list">
+                                    {heat.athletes?.map((athleteId, idx) => {
+                                      const athlete = scheduleAthletes[athleteId];
+                                      return (
+                                        <div key={idx} className="athlete-item">
+                                          <span className="athlete-number">{idx + 1}</span>
+                                          <span className="athlete-name">
+                                            {athlete ? `${athlete.firstName} ${athlete.lastName}` : athleteId}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))
+                            ) : session.matches && session.matches.length > 0 ? (
+                              session.matches.map((match, matchIndex) => {
+                                const athlete1 = match.athlete1;
+                                const athlete2 = match.athlete2;
+                                return (
+                                  <div key={matchIndex} className="match-card">
+                                    <div className="match-header">Match {matchIndex + 1}</div>
+                                    <div className="match-athletes">
+                                      <span className="athlete-name">
+                                        {athlete1 ? `${athlete1.firstName} ${athlete1.lastName}` : 'TBD'}
+                                      </span>
+                                      <span className="vs">VS</span>
+                                      <span className="athlete-name">
+                                        {athlete2 ? `${athlete2.firstName} ${athlete2.lastName}` : 'TBD'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="no-heats">No matches found for this session</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        // Event Details View
+        <>
       <div className="page-header">
         <button onClick={() => navigate('/backoffice/events')} className="btn-back">
           <span>←</span> Back to Events
@@ -308,11 +512,23 @@ function EventDetails() {
         <div className="header-content">
           <div className="title-section">
             <h1>{event.name}</h1>
-            <div className="badges">
+            <div className="status-controls">
               <span className={`badge status-${event.status}`}>{event.status}</span>
-              <span className={`badge ${event.published ? 'published' : 'draft'}`}>
-                {event.published ? '✓ Published' : '✗ Draft'}
-              </span>
+              <div className="publish-checkbox-container">
+                <div className="toggle-container">
+                  <input
+                    type="checkbox"
+                    checked={event.published}
+                    onChange={togglePublishStatus}
+                    className="toggle-input"
+                    id="publish-toggle"
+                  />
+                  <label htmlFor="publish-toggle" className="toggle-slider"></label>
+                  <span className="toggle-text">
+                    {event.published ? 'Published (visible to public)' : 'Draft (not visible to public)'}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
           <button onClick={() => navigate(`/backoffice/events/${eventId}/edit`)} className="btn-edit">
@@ -381,21 +597,24 @@ function EventDetails() {
               <span className="value">
                 {categories.length > 0 ? (
                   <div className="categories-with-quotas">
-                    {categories.map(category => {
-                      const categoryAthletes = athletes.filter(a => a.categoryId === category.categoryId);
-                      const categoryCount = categoryAthletes.length;
-                      const maxQuota = category.maxParticipants || null;
-                      
-                      console.log('Category quota display:', { 
-                        categoryId: category.categoryId, 
-                        name: category.name, 
-                        maxQuota, 
-                        categoryCount 
-                      });
-                      
-                      return (
-                        <div key={category.categoryId} className="category-quota-item">
-                          <span className="category-name">{category.name}</span>
+                    {categories
+                      .filter(category => typeof category === 'object' && category.categoryId)
+                      .map(category => {
+                        const categoryAthletes = athletes.filter(a => a.categoryId === category.categoryId);
+                        const categoryCount = categoryAthletes.length;
+                        const maxQuota = category.maxParticipants || null;
+                        
+                        console.log('Category quota display:', { 
+                          categoryId: category.categoryId, 
+                          name: category.name, 
+                          maxQuota, 
+                          categoryCount,
+                          fullCategory: category
+                        });
+                        
+                        return (
+                          <div key={category.categoryId} className="category-quota-item">
+                            <span className="category-name">{category.name || category.categoryId}</span>
                           <span className="category-quota">
                             <span className="registered-count">{categoryCount}</span>
                             {maxQuota && (
@@ -439,12 +658,35 @@ function EventDetails() {
           <div className="card-body">
             {wods.length > 0 ? (
               <div className="wods-grid">
-                {wods.map((wod, index) => (
+                {wods.map((wod, index) => {
+                  const scoreData = calculateWodMaxScore(wod);
+                  return (
                   <div key={wod.wodId || index} className="wod-card">
                     <div className="wod-header">
                       <h4>{wod.name}</h4>
                       <span className="wod-format">{wod.format}</span>
                     </div>
+                    {scoreData && (
+                      <div style={{
+                        padding: '10px 12px',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        fontSize: '12px'
+                      }}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                          <div>
+                            <div style={{opacity: 0.85, fontSize: '11px', marginBottom: '2px'}}>Max Score (Perfect EQS)</div>
+                            <div style={{fontSize: '20px', fontWeight: 'bold'}}>{scoreData.maxScore} pts</div>
+                          </div>
+                          <div style={{textAlign: 'right', fontSize: '11px', opacity: 0.9}}>
+                            <div>EDS: {scoreData.totalEDS} × 5</div>
+                            <div>Bonus: +{scoreData.timeBonus}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {wod.timeLimit && <p className="time-limit">⏱️ {wod.timeLimit}</p>}
                     <div className="movements">
                       {wod.movements?.map((movement, i) => (
@@ -457,7 +699,7 @@ function EventDetails() {
                     </div>
                     {wod.description && <p className="wod-description">{wod.description}</p>}
                   </div>
-                ))}
+                )})}
               </div>
             ) : (
               <div className="empty-state">
@@ -470,6 +712,18 @@ function EventDetails() {
           </div>
         </div>
 
+        <div className="info-card">
+          <div className="card-header">
+            <h3>🎯 Scoring Systems</h3>
+          </div>
+          <div className="card-body">
+            <ScoringSystemManager eventId={eventId} />
+          </div>
+        </div>
+      </div>
+
+      {/* Registered Athletes Section - Full Width */}
+      <div className="scheduler-section">
         <div className="info-card">
           <div className="card-header">
             <h3>👥 Registered Athletes</h3>
@@ -541,12 +795,17 @@ function EventDetails() {
             <CompetitionScheduler 
               eventId={eventId}
               onScheduleGenerated={(schedule) => {
-                fetchScheduleDetails(schedule);
+                navigate(`/backoffice/events/${eventId}/schedule/${schedule.scheduleId}`);
+              }}
+              onScheduleClick={(schedule) => {
+                navigate(`/backoffice/events/${eventId}/schedule/${schedule.scheduleId}`);
               }}
             />
           </div>
         </div>
       </div>
+        </>
+      )}
 
       <style jsx>{`
         .event-details {
@@ -631,9 +890,73 @@ function EventDetails() {
           background-clip: text;
           letter-spacing: -0.5px;
         }
-        .badges {
+        .status-controls {
           display: flex;
-          gap: 10px;
+          gap: 15px;
+          justify-content: center;
+          align-items: center;
+        }
+        .publish-checkbox-container {
+          margin: 12px 0;
+        }
+        
+        .toggle-container {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border: 1px solid #e9ecef;
+          transition: all 0.2s ease;
+        }
+        
+        .toggle-container:hover {
+          background: #e9ecef;
+          border-color: #dee2e6;
+        }
+        
+        .toggle-input {
+          display: none;
+        }
+        
+        .toggle-slider {
+          position: relative;
+          width: 60px;
+          height: 30px;
+          background: #ccc;
+          border-radius: 30px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+        
+        .toggle-slider:before {
+          content: '';
+          position: absolute;
+          top: 3px;
+          left: 3px;
+          width: 24px;
+          height: 24px;
+          background: white;
+          border-radius: 50%;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .toggle-input:checked + .toggle-slider {
+          background: #28a745;
+        }
+        
+        .toggle-input:checked + .toggle-slider:before {
+          transform: translateX(30px);
+        }
+        
+        .toggle-text {
+          font-size: 14px;
+          font-weight: 500;
+          color: #495057;
+          user-select: none;
+        }
           justify-content: center;
         }
         .badge {
@@ -1509,106 +1832,91 @@ function EventDetails() {
           border-radius: 8px;
           border: 1px dashed #dee2e6;
         }
+        
+        /* Schedule Details Page Styles */
+        .schedule-details-page {
+          padding: 20px;
+          max-width: 1400px;
+          margin: 0 auto;
+        }
+        .schedule-page-header {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          margin-bottom: 30px;
+        }
+        .schedule-page-header h2 {
+          margin: 0;
+          color: #2c3e50;
+        }
+        .schedule-info-card {
+          background: white;
+          border: 1px solid #e0e0e0;
+          border-radius: 8px;
+          padding: 24px;
+          margin-bottom: 30px;
+        }
+        .info-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 20px;
+        }
+        .info-item {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .info-label {
+          font-size: 12px;
+          color: #666;
+          font-weight: 600;
+        }
+        .info-value {
+          font-size: 16px;
+          color: #333;
+        }
+        .day-title {
+          margin: 0 0 20px 0;
+          color: #667eea;
+          font-size: 20px;
+          border-bottom: 2px solid #667eea;
+          padding-bottom: 10px;
+        }
+        .category-title {
+          margin: 20px 0 15px 0;
+          color: #333;
+        }
+        .sessions-grid {
+          display: grid;
+          gap: 16px;
+        }
+        .session-time {
+          font-weight: 600;
+        }
+        .session-wod {
+          font-weight: 600;
+        }
+        .athlete-number {
+          background: #667eea;
+          color: white;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .match-athletes .vs {
+          background: #dc3545;
+          color: white;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-weight: 700;
+          font-size: 12px;
         }
       `}</style>
-
-      {/* Schedule Details Modal */}
-      {selectedSchedule && (
-        <div className="schedule-modal">
-          <div className="schedule-modal-content">
-            <div className="schedule-modal-header">
-              <h3>Schedule Details - {selectedSchedule.config?.competitionMode}</h3>
-              <button 
-                className="close-btn"
-                onClick={() => setSelectedSchedule(null)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="schedule-modal-body">
-              <div className="schedule-info">
-                <p><strong>Competition Mode:</strong> {selectedSchedule.config?.competitionMode}</p>
-                <p><strong>Created:</strong> {new Date(selectedSchedule.generatedAt).toLocaleString()}</p>
-                <p><strong>Status:</strong> {selectedSchedule.published ? 'Published' : 'Draft'}</p>
-                <p><strong>Total Days:</strong> {selectedSchedule.days?.length || 0}</p>
-              </div>
-              
-              {selectedSchedule.days?.map((day, dayIndex) => {
-                const groupedSessions = groupSessionsByCategory(day.sessions);
-                
-                return (
-                  <div key={day.dayId} className="day-section">
-                    <h4>📅 Day {dayIndex + 1} - {new Date(day.date).toLocaleDateString()}</h4>
-                    
-                    {Object.entries(groupedSessions).map(([categoryId, sessions]) => (
-                      <div key={categoryId} className="category-section">
-                        <div className="category-header">
-                          <h5>🏆 {getCategoryName(categoryId)}</h5>
-                          <span className="session-count">{sessions.length} session{sessions.length > 1 ? 's' : ''}</span>
-                        </div>
-                        
-                        {sessions.map((session, sessionIndex) => (
-                          <div key={session.sessionId} className="session-card">
-                            <div className="session-header">
-                              <div className="session-title">
-                                <h6>💪 {getWodName(session.wodId)}</h6>
-                                <span className="session-time">🕐 {session.startTime}</span>
-                              </div>
-                              <div className="session-stats">
-                                <span className="heat-count">
-                                  {session.matches?.length || 0} matches
-                                </span>
-                                <span className="athlete-count">
-                                  {session.athleteSchedule?.length || 0} athletes
-                                </span>
-                              </div>
-                            </div>
-                            
-                            <div className="heats-container">
-                              {session.matches && session.matches.length > 0 ? (
-                                session.matches.map((match, matchIndex) => (
-                                  <div key={match.matchId || matchIndex} className="heat-row">
-                                    <div className="heat-number">
-                                      <span className="heat-badge">Match {matchIndex + 1}</span>
-                                    </div>
-                                    <div className="heat-matchup">
-                                      {match.athlete1 && (
-                                        <div className="athlete-card">
-                                          <div className="athlete-name">
-                                            {getAthleteName(match.athlete1.userId || match.athlete1.athleteId || match.athlete1.id)}
-                                          </div>
-                                          <div className="athlete-id">Alias: {getAthleteAlias(match.athlete1.userId || match.athlete1.athleteId || match.athlete1.id)}</div>
-                                        </div>
-                                      )}
-                                      {match.athlete1 && match.athlete2 && (
-                                        <div className="vs-divider">VS</div>
-                                      )}
-                                      {match.athlete2 && (
-                                        <div className="athlete-card">
-                                          <div className="athlete-name">
-                                            {getAthleteName(match.athlete2.userId || match.athlete2.athleteId || match.athlete2.id)}
-                                          </div>
-                                          <div className="athlete-id">Alias: {getAthleteAlias(match.athlete2.userId || match.athlete2.athleteId || match.athlete2.id)}</div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="no-heats">No matches found for this session</div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

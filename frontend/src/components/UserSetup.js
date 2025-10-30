@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import { API } from 'aws-amplify';
 import CategorySelection from './CategorySelection';
 import AthleteProfile from './AthleteProfile';
+import AthleteEventDetails from './athlete/AthleteEventDetails';
 
 function UserSetup({ user, signOut }) {
   const [needsSetup, setNeedsSetup] = useState(true);
@@ -85,7 +87,7 @@ function UserSetup({ user, signOut }) {
       <div className="user-setup">
         <div className="setup-container">
           <div className="setup-header">
-            <h1>Welcome to Calisthenics Competition!</h1>
+            <h1>Welcome to Athleon - The place where champions are forged</h1>
             <p>Let's set up your profile to get started.</p>
           </div>
           
@@ -132,7 +134,7 @@ function UserSetup({ user, signOut }) {
         <style jsx>{`
           .user-setup {
             min-height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #B87333 0%, #FF5722 100%);
             padding: 20px;
             display: flex;
             align-items: center;
@@ -151,6 +153,7 @@ function UserSetup({ user, signOut }) {
             font-size: 2.5rem;
             margin-bottom: 15px;
             font-weight: 700;
+            color: white;
           }
           .setup-header p {
             font-size: 1.2rem;
@@ -227,7 +230,13 @@ function UserSetup({ user, signOut }) {
     );
   }
 
-  return <AthleteProfile user={user} signOut={signOut} />;
+  return (
+    <Routes>
+      <Route path="/athlete/events/:eventId" element={<AthleteEventDetails />} />
+      <Route path="/events/:eventId" element={<AthleteEventDetails />} />
+      <Route path="/*" element={<AthleteProfile user={user} signOut={signOut} />} />
+    </Routes>
+  );
 }
 
 export default UserSetup;

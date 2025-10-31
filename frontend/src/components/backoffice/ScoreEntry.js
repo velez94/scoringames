@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { API } from 'aws-amplify';
+import { useParams, useNavigate } from 'react-router-dom';
 
 function ScoreEntry({ user }) {
+  const { eventId } = useParams();
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [filteredEvents, setFilteredEvents] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -46,8 +49,16 @@ function ScoreEntry({ user }) {
   useEffect(() => {
     fetchEvents();
     fetchCategories();
-    fetchAthletes();
   }, []);
+
+  useEffect(() => {
+    if (eventId && events.length > 0) {
+      const event = events.find(e => e.eventId === eventId);
+      if (event) {
+        setSelectedEvent(event);
+      }
+    }
+  }, [eventId, events]);
 
   useEffect(() => {
     const filtered = events.filter(event =>
@@ -61,6 +72,7 @@ function ScoreEntry({ user }) {
     if (selectedEvent) {
       fetchWods(selectedEvent.eventId);
       fetchPublishedSchedules();
+      fetchAthletes();
     }
   }, [selectedEvent]);
 
@@ -128,7 +140,7 @@ function ScoreEntry({ user }) {
   };
 
   useEffect(() => {
-    if (selectedEvent && scoreData.wodId && scoreData.categoryId) {
+    if (selectedEvent) {
       console.log('Fetching scores for:', { eventId: selectedEvent.eventId, wodId: scoreData.wodId, categoryId: scoreData.categoryId });
       fetchScores();
     }
@@ -146,11 +158,27 @@ function ScoreEntry({ user }) {
   const fetchWods = async (eventId) => {
     try {
       console.log('Fetching WODs for eventId:', eventId);
-      const response = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`);
-      console.log('WODs response:', response);
-      setWods(response);
+      
+      // Try both approaches: event record wods field AND separate WODs query
+      const eventResponse = await API.get('CalisthenicsAPI', `/competitions/${eventId}`);
+      const eventWods = eventResponse.wods || eventResponse.workouts || [];
+      
+      const linkedWods = await API.get('CalisthenicsAPI', `/wods?eventId=${eventId}`);
+      
+      // Combine both sources and deduplicate by wodId
+      const allWods = [...eventWods, ...(linkedWods || [])];
+      const uniqueWods = allWods.reduce((acc, wod) => {
+        if (!acc.find(w => w.wodId === wod.wodId)) {
+          acc.push(wod);
+        }
+        return acc;
+      }, []);
+      
+      console.log('WODs response:', uniqueWods);
+      setWods(uniqueWods);
     } catch (error) {
       console.error('Error fetching WODs:', error);
+      setWods([]);
     }
   };
 
@@ -165,7 +193,9 @@ function ScoreEntry({ user }) {
 
   const fetchAthletes = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/athletes');
+      if (!selectedEvent) return;
+      
+      const response = await API.get('CalisthenicsAPI', `/athletes?eventId=${selectedEvent.eventId}`);
       setAthletes(response || []);
     } catch (error) {
       console.error('Error fetching athletes:', error);
@@ -174,15 +204,26 @@ function ScoreEntry({ user }) {
 
   const fetchScores = async () => {
     try {
+      if (!selectedEvent) return;
+      
       console.log('Fetching scores from API...');
       const response = await API.get('CalisthenicsAPI', `/scores?eventId=${selectedEvent.eventId}`);
       console.log('All scores response:', response);
       
-      const filteredScores = response.filter(score => 
-        score.wodId === scoreData.wodId && score.categoryId === scoreData.categoryId
-      );
-      console.log('Filtered scores:', filteredScores);
-      setScores(filteredScores);
+      // Only filter if both wodId and categoryId are selected
+      if (scoreData.wodId && scoreData.categoryId) {
+        console.log('Filtering with:', { wodId: scoreData.wodId, categoryId: scoreData.categoryId });
+        const filteredScores = response.filter(score => {
+          console.log('Comparing score:', { scoreWodId: score.wodId, scoreCategoryId: score.categoryId });
+          return score.wodId === scoreData.wodId && score.categoryId === scoreData.categoryId;
+        });
+        console.log('Filtered scores:', filteredScores);
+        setScores(filteredScores);
+      } else {
+        // Show all scores if no filters are applied
+        console.log('No filters applied, showing all scores');
+        setScores(response || []);
+      }
     } catch (error) {
       console.error('Error fetching scores:', error);
       setScores([]); // Set empty array on error
@@ -310,7 +351,7 @@ function ScoreEntry({ user }) {
           </div>
           <div className="events-grid">
             {filteredEvents.map(event => (
-              <div key={event.eventId} className="event-card" onClick={() => setSelectedEvent(event)}>
+              <div key={event.eventId} className="event-card" onClick={() => navigate(`/backoffice/scores/${event.eventId}`)}>
                 <h3>{event.name}</h3>
                 <p>📍 {event.location}</p>
                 <p>📅 {new Date(event.startDate).toLocaleDateString()}</p>
@@ -326,7 +367,7 @@ function ScoreEntry({ user }) {
               <h2>✅ {selectedEvent.name}</h2>
               <p>{selectedEvent.location} • {new Date(selectedEvent.startDate).toLocaleDateString()}</p>
             </div>
-            <button className="btn-secondary" onClick={() => setSelectedEvent(null)}>Change Event</button>
+            <button className="btn-secondary" onClick={() => navigate('/backoffice/scores')}>Change Event</button>
           </div>
 
           <div className="mode-selection-header">

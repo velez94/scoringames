@@ -446,7 +446,7 @@ function AthleteManagement() {
               <th>Email</th>
               <th>Age</th>
               <th>Category</th>
-              <th>Competitions</th>
+              <th>Details</th>
               <th>Registered</th>
               <th>Actions</th>
             </tr>
@@ -488,9 +488,9 @@ function AthleteManagement() {
                       <button 
                         onClick={() => toggleAthleteExpand(athlete.athleteId)}
                         className="btn-sm btn-info"
-                        title="View events"
+                        title="View details"
                       >
-                        {isExpanded ? '▼' : '▶'} Competitions ({athleteComps.length})
+                        {isExpanded ? '▼' : '▶'} Details ({athleteComps.length})
                       </button>
                     </td>
                     <td>{new Date(athlete.createdAt).toLocaleDateString()}</td>

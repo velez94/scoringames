@@ -179,6 +179,7 @@ function BackofficeLayout({ user, signOut }) {
           <Route path="exercises" element={<ExerciseLibraryManager />} />
           <Route path="authorization" element={<AuthorizationAdmin />} />
           <Route path="scores" element={<ScoreEntry />} />
+          <Route path="scores/:eventId" element={<ScoreEntry />} />
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="organization/:organizationId" element={<OrganizationManagement />} />

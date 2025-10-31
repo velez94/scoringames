@@ -23,13 +23,13 @@ function Leaderboard() {
       fetchEvents();
     }
     fetchCategories();
-    fetchAthletes();
   }, [selectedOrganization]);
 
   useEffect(() => {
     if (selectedEvent) {
       fetchWods();
       fetchScores();
+      fetchAthletes();
     }
   }, [selectedEvent]);
 
@@ -62,7 +62,9 @@ function Leaderboard() {
 
   const fetchAthletes = async () => {
     try {
-      const response = await API.get('CalisthenicsAPI', '/athletes');
+      if (!selectedEvent) return;
+      
+      const response = await API.get('CalisthenicsAPI', `/athletes?eventId=${selectedEvent.eventId}`);
       setAthletes(response || []);
     } catch (error) {
       console.error('Error fetching athletes:', error);

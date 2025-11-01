@@ -1,4 +1,4 @@
-# ScorinGames - Calisthenics Competition Management Platform
+# Athleon - Calisthenics Hub Management Platform
 
 ## Architecture Overview
 

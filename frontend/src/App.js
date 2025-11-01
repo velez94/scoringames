@@ -8,6 +8,8 @@ import BackofficeLayout from './components/BackofficeLayout';
 import UserSetup from './components/UserSetup';
 import LandingPage from './components/LandingPage';
 import PublicEvents from './components/PublicEvents';
+import PublicWODs from './components/PublicWODs';
+import PublicExercises from './components/PublicExercises';
 import PublicEventDetail from './components/PublicEventDetail';
 import { canAccessBackoffice } from './utils/organizerRoles';
 
@@ -35,7 +37,10 @@ Amplify.configure({
             const token = session.getIdToken().getJwtToken();
             return { Authorization: token };
           } catch (error) {
-            console.error('Auth error:', error);
+            // Silently handle unauthenticated users - this is expected for public endpoints
+            if (!error.message || !error.message.includes('No current user')) {
+              console.error('Auth error:', error);
+            }
             return {};
           }
         }
@@ -233,6 +238,8 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/events" element={<PublicEvents />} />
+          <Route path="/wods" element={<PublicWODs />} />
+          <Route path="/exercises" element={<PublicExercises />} />
           <Route path="/events/:eventId" element={<PublicEventDetail />} />
           <Route path="/login" element={<AuthPageWrapper />} />
           <Route path="/athlete/events/:eventId" element={<AuthPage />} />

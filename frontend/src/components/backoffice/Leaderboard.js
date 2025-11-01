@@ -120,7 +120,7 @@ function Leaderboard() {
     Object.values(byWod).forEach(wodScores => {
       const sorted = wodScores.sort((a, b) => b.score - a.score);
       sorted.forEach((score, idx) => {
-        const points = Math.max(100 - idx, 1);
+        const points = score.score; // Use actual score instead of ranking-based points
         if (!athletePoints[score.athleteId]) {
           athletePoints[score.athleteId] = {
             athleteId: score.athleteId,

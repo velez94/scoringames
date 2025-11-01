@@ -487,7 +487,7 @@ export class CalisthenicsAppStack extends cdk.Stack {
       code: lambda.Code.fromAsset('lambda/wods'),
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),
-      description: 'WODs service - v6.2 with organization-only editing restrictions',
+      description: 'WODs service - v6.3 with public endpoints and CORS',
       environment: {
         ...commonEnv,
         WODS_TABLE: wodsTable.tableName,
@@ -961,6 +961,30 @@ export class CalisthenicsAppStack extends cdk.Stack {
     // Public endpoint for scores - /public/scores (no auth required)
     const publicScores = publicResource.addResource('scores');
     publicScores.addMethod('GET', new apigateway.LambdaIntegration(scoresLambda));
+
+    // Public endpoint for WODs - /public/wods (no auth required)
+    const publicWods = publicResource.addResource('wods');
+    publicWods.addMethod('GET', new apigateway.LambdaIntegration(wodsLambda));
+    publicWods.addMethod('OPTIONS', new apigateway.MockIntegration({
+      integrationResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Headers': "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+          'method.response.header.Access-Control-Allow-Origin': "'*'",
+          'method.response.header.Access-Control-Allow-Methods': "'GET,OPTIONS'"
+        }
+      }],
+      requestTemplates: { 'application/json': '{"statusCode": 200}' }
+    }), {
+      methodResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Headers': true,
+          'method.response.header.Access-Control-Allow-Origin': true,
+          'method.response.header.Access-Control-Allow-Methods': true
+        }
+      }]
+    });
 
     // Competitions microservice - /competitions/* (auth required)
     const competitions = api.root.addResource('competitions');

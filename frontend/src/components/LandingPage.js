@@ -21,6 +21,12 @@ function LandingPage() {
             <button className="btn-events" onClick={() => navigate('/events')}>
               Events
             </button>
+            <button className="btn-events" onClick={() => navigate('/wods')}>
+              WODs Library
+            </button>
+            <button className="btn-events" onClick={() => navigate('/exercises')}>
+              Exercises Library
+            </button>
             <button className="btn-login" onClick={handleGetStarted}>
               Sign In
             </button>

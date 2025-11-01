@@ -84,6 +84,7 @@ export class ScorinGamesStack extends cdk.Stack {
       eventBus: sharedStack.eventBus,
       organizationEventsTable: organizationsStack.organizationEventsTable,
       organizationMembersTable: organizationsStack.organizationMembersTable,
+      scoresTable: scoringStack.scoresTable,
     });
 
     const authorizationStack = new AuthorizationStack(this, 'Authorization', {
@@ -119,6 +120,10 @@ export class ScorinGamesStack extends cdk.Stack {
     publicEvents.addResource('{proxy+}').addMethod('GET', 
       new apigateway.LambdaIntegration(competitionsStack.competitionsLambda)
     );
+
+    // Public WODs
+    const publicWods = publicRoot.addResource('wods');
+    publicWods.addMethod('GET', new apigateway.LambdaIntegration(wodsStack.wodsLambda));
 
     // Athletes
     const athletes = networkStack.api.root.addResource('athletes');

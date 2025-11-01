@@ -229,19 +229,16 @@ exports.handler = async (event) => {
 
   try {
     let path = event.path || '';
-  if (event.pathParameters?.proxy) {
-    path = '/' + event.pathParameters.proxy;
-  }
-  
-  // Clean path - remove /wods prefix if present
-  if (path.startsWith('/wods')) {
-    path = path.substring('/wods'.length);
-  }
-  
-  const method = event.httpMethod;
+    if (event.pathParameters?.proxy) {
+      path = '/' + event.pathParameters.proxy;
+    }
+    
+    const method = event.httpMethod;
+    
+    logger.info('Processing request', { path, method });
 
-  // Public endpoints (no auth required)
-  if (path === '/public/wods' && method === 'GET') {
+    // Public endpoints (no auth required) - check full path first
+    if (path === '/public/wods' && method === 'GET') {
     try {
       const eventId = event.queryStringParameters?.eventId;
       
@@ -259,17 +256,28 @@ exports.handler = async (event) => {
           body: JSON.stringify(Items || [])
         };
       } else {
-        // Return template WODs
-        const { Items } = await ddb.send(new QueryCommand({
+        // Return template and transversal WODs for public access
+        const templateWods = await ddb.send(new QueryCommand({
           TableName: WODS_TABLE,
           KeyConditionExpression: 'eventId = :eventId',
           ExpressionAttributeValues: { ':eventId': 'template' }
         }));
         
+        const transversalWods = await ddb.send(new ScanCommand({
+          TableName: WODS_TABLE,
+          FilterExpression: 'isTransversal = :isTransversal',
+          ExpressionAttributeValues: { ':isTransversal': true }
+        }));
+        
+        const allPublicWods = [
+          ...(templateWods.Items || []),
+          ...(transversalWods.Items || [])
+        ];
+        
         return {
           statusCode: 200,
           headers,
-          body: JSON.stringify(Items || [])
+          body: JSON.stringify(allPublicWods)
         };
       }
     } catch (error) {
@@ -280,6 +288,11 @@ exports.handler = async (event) => {
         body: JSON.stringify({ message: 'Internal server error' })
       };
     }
+  }
+
+  // Clean path - remove /wods prefix if present for authenticated endpoints
+  if (path.startsWith('/wods')) {
+    path = path.substring('/wods'.length);
   }
 
   // Extract user info for authenticated endpoints

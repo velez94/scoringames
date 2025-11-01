@@ -188,7 +188,7 @@ function AthleteLeaderboard({ userProfile }) {
       
       // Assign points: 1st = 100, 2nd = 99, etc.
       sortedScores.forEach((score, index) => {
-        const points = Math.max(100 - index, 1); // Minimum 1 point
+        const points = score.score; // Use actual score instead of ranking-based points
         const position = index + 1;
         const actualAthleteId = score.originalAthleteId || (score.athleteId.includes('#') ? score.athleteId.split('#')[0] : score.athleteId);
         

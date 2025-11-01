@@ -9,6 +9,7 @@ export interface WodsStackProps  {
   stage: string;  eventBus: events.EventBus;
   organizationEventsTable: dynamodb.Table;
   organizationMembersTable: dynamodb.Table;
+  scoresTable: dynamodb.Table;
 }
 
 export class WodsStack extends Construct {
@@ -43,6 +44,7 @@ export class WodsStack extends Construct {
         WODS_TABLE: this.wodsTable.tableName,
         ORGANIZATION_EVENTS_TABLE: props.organizationEventsTable.tableName,
         ORGANIZATION_MEMBERS_TABLE: props.organizationMembersTable.tableName,
+        SCORES_TABLE: props.scoresTable.tableName,
         DOMAIN_EVENT_BUS: this.wodsEventBus.eventBusName,
         CENTRAL_EVENT_BUS: props.eventBus.eventBusName,
       },
@@ -52,6 +54,7 @@ export class WodsStack extends Construct {
     this.wodsTable.grantReadWriteData(this.wodsLambda);
     props.organizationEventsTable.grantReadData(this.wodsLambda);
     props.organizationMembersTable.grantReadData(this.wodsLambda);
+    props.scoresTable.grantReadData(this.wodsLambda);
     this.wodsEventBus.grantPutEventsTo(this.wodsLambda);
     props.eventBus.grantPutEventsTo(this.wodsLambda);
 

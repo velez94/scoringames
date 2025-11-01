@@ -23,6 +23,33 @@ exports.handler = async (event) => {
   
   const path = event.path;
   const method = event.httpMethod;
+  
+  // Public endpoints (no auth required)
+  if (path === '/public/exercises' && method === 'GET') {
+    try {
+      const response = await ddb.send(new ScanCommand({
+        TableName: EXERCISE_LIBRARY_TABLE,
+        FilterExpression: 'isGlobal = :isGlobal',
+        ExpressionAttributeValues: {
+          ':isGlobal': true
+        }
+      }));
+      
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(response.Items || [])
+      };
+    } catch (error) {
+      console.error('Error fetching public exercises:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ message: 'Error fetching exercises' })
+      };
+    }
+  }
+  
   const userId = event.requestContext?.authorizer?.claims?.sub;
   
   try {
